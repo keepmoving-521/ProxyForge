@@ -12,6 +12,7 @@ from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.providers.base import BaseProvider
 from proxyforge.router import ProxyRouter
 from proxyforge.scoring import ProxyScorer
+from proxyforge.storage.base import BaseStorage
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +25,14 @@ class ProxyPool:
         config: ProxyForgeConfig | None = None,
         *,
         providers: Iterable[BaseProvider] | None = None,
+        storage: BaseStorage | None = None,
+        auto_persist: bool = False,
     ) -> None:
         self.config = config or ProxyForgeConfig()
         self._proxies: dict[str, Proxy] = {}
         self._providers: list[BaseProvider] = list(providers or [])
+        self._storage = storage
+        self._auto_persist = auto_persist
         self._scorer = ProxyScorer(self.config)
         self._checker = HealthChecker(self.config, self._scorer)
         self._router = ProxyRouter(self.config)
@@ -66,6 +71,30 @@ class ProxyPool:
     def add_provider(self, provider: BaseProvider) -> None:
         self._providers.append(provider)
 
+    async def load(self) -> int:
+        """从持久化存储加载代理池。"""
+        if self._storage is None:
+            return 0
+        proxies = await self._storage.load_all()
+        count = self.add_proxies(proxies)
+        logger.info("Loaded %d proxies from storage", count)
+        return count
+
+    async def persist(self) -> None:
+        """将当前代理池持久化。"""
+        if self._storage is None:
+            return
+        await self._storage.save_all(self._proxies.values())
+        logger.debug("Persisted %d proxies to storage", self.total_count)
+
+    async def _maybe_persist(self, proxy: Proxy | None = None) -> None:
+        if not self._auto_persist or self._storage is None:
+            return
+        if proxy is not None:
+            await self._storage.save_proxy(proxy)
+        else:
+            await self.persist()
+
     async def refresh_from_providers(self) -> int:
         """从所有已注册服务商拉取并合并代理。"""
         total = 0
@@ -81,10 +110,15 @@ class ProxyPool:
                     )
                 except Exception:
                     logger.exception("Failed to fetch from provider %s", provider.name)
+        await self._maybe_persist()
         return total
 
     async def check_health(self, *, concurrency: int = 20) -> dict[str, bool]:
-        return await self._checker.check_all(self._proxies.values(), concurrency=concurrency)
+        results = await self._checker.check_all(
+            self._proxies.values(), concurrency=concurrency
+        )
+        await self._maybe_persist()
+        return results
 
     async def start_background_health_check(self) -> None:
         if self._health_task and not self._health_task.done():

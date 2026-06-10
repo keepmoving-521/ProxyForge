@@ -17,5 +17,5 @@ class ProxyForgeConfig:
     latency_weight: float = 0.3
     success_rate_weight: float = 0.7
     banned_cooldown_seconds: float = 300.0
-    user_agent: str = "ProxyForge/0.1.0"
+    user_agent: str = "ProxyForge/0.2.0"
     tags: frozenset[str] = field(default_factory=frozenset)

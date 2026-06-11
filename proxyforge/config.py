@@ -11,7 +11,7 @@ from typing import Any
 def _coerce_value(field_name: str, raw: str) -> Any:
     if field_name == "tags":
         return frozenset(p.strip() for p in raw.split(",") if p.strip())
-    if field_name in {"allow_unknown_proxies", "lease_enabled"}:
+    if field_name in {"allow_unknown_proxies", "lease_enabled", "score_window_enabled"}:
         return raw.lower() in {"1", "true", "yes", "on"}
     if field_name in {
         "max_consecutive_failures",
@@ -19,6 +19,7 @@ def _coerce_value(field_name: str, raw: str) -> Any:
         "max_proxy_retries",
         "health_check_concurrency",
         "health_check_batch_size",
+        "score_window_max_events",
     }:
         return int(raw)
     if field_name == "retry_http_codes":
@@ -30,6 +31,7 @@ def _coerce_value(field_name: str, raw: str) -> Any:
         "banned_check_interval",
         "unhealthy_backoff_factor",
         "unhealthy_check_max_interval",
+        "score_window_seconds",
         "min_score",
         "score_decay_per_failure",
         "score_boost_per_success",
@@ -61,6 +63,9 @@ class ProxyForgeConfig:
     score_boost_per_success: float = 5.0
     latency_weight: float = 0.3
     success_rate_weight: float = 0.7
+    score_window_enabled: bool = True
+    score_window_seconds: float = 3600.0
+    score_window_max_events: int = 500
     banned_cooldown_seconds: float = 300.0
     allow_unknown_proxies: bool = True
     lease_enabled: bool = True
@@ -130,6 +135,9 @@ class ProxyForgeConfig:
             "score_boost_per_success": self.score_boost_per_success,
             "latency_weight": self.latency_weight,
             "success_rate_weight": self.success_rate_weight,
+            "score_window_enabled": self.score_window_enabled,
+            "score_window_seconds": self.score_window_seconds,
+            "score_window_max_events": self.score_window_max_events,
             "banned_cooldown_seconds": self.banned_cooldown_seconds,
             "allow_unknown_proxies": self.allow_unknown_proxies,
             "lease_enabled": self.lease_enabled,

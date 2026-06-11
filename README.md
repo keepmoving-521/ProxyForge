@@ -57,6 +57,9 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 | `lease_ttl_seconds` | 租约 TTL（秒） | 60 |
 | `max_proxy_retries` | 失败换 IP 最大重试次数 | 3 |
 | `retry_http_codes` | 触发换 IP 的 HTTP 状态码 | 403,429,502,503,504 |
+| `score_window_enabled` | 启用滑动窗口评分 | true |
+| `score_window_seconds` | 评分窗口时长（秒） | 3600 |
+| `score_window_max_events` | 窗口内最多保留事件数 | 500 |
 | `min_score` | 最低可用评分 | 20 |
 | `health_check_concurrency` | 健康检测并发数 | 20 |
 | `health_check_batch_size` | 分批检测每批大小 | 100 |

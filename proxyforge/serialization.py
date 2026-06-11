@@ -27,12 +27,23 @@ def proxy_to_dict(proxy: Proxy) -> dict[str, Any]:
         "banned_at": proxy.banned_at,
         "unhealthy_at": proxy.unhealthy_at,
         "unhealthy_recheck_attempts": proxy.unhealthy_recheck_attempts,
+        "recent_events": [
+            {"t": event[0], "ok": event[1], "latency_ms": event[2]}
+            for event in proxy.recent_events
+        ],
         "metadata": proxy.metadata,
     }
 
 
 def proxy_from_dict(data: dict[str, Any]) -> Proxy:
     tags = data.get("tags") or []
+    recent_raw = data.get("recent_events") or []
+    recent_events: list[tuple[float, bool, float]] = []
+    for item in recent_raw:
+        if isinstance(item, dict):
+            recent_events.append(
+                (float(item["t"]), bool(item["ok"]), float(item.get("latency_ms", 0.0)))
+            )
     return Proxy(
         host=data["host"],
         port=int(data["port"]),
@@ -52,5 +63,6 @@ def proxy_from_dict(data: dict[str, Any]) -> Proxy:
         banned_at=data.get("banned_at"),
         unhealthy_at=data.get("unhealthy_at"),
         unhealthy_recheck_attempts=int(data.get("unhealthy_recheck_attempts", 0)),
+        recent_events=recent_events,
         metadata=dict(data.get("metadata") or {}),
     )

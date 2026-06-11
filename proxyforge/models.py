@@ -45,6 +45,7 @@ class Proxy:
     banned_at: float | None = None
     unhealthy_at: float | None = None
     unhealthy_recheck_attempts: int = 0
+    recent_events: list[tuple[float, bool, float]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -82,11 +83,13 @@ class Proxy:
         now = time.time()
         self.last_check_at = now
         self.last_success_at = now
+        self.recent_events.append((now, True, latency_ms))
 
     def record_failure(self, *, max_consecutive_failures: int = 3) -> None:
         self.failure_count += 1
         self.consecutive_failures += 1
         self.last_check_at = time.time()
+        self.recent_events.append((self.last_check_at, False, 0.0))
         if self.consecutive_failures >= max_consecutive_failures:
             self.status = ProxyStatus.BANNED
             self.banned_at = time.time()

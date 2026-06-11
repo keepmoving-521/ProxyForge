@@ -75,7 +75,9 @@ def test_scrapy_middleware_retry_on_403():
         Proxy(host="1.1.1.1", port=8080, score=90.0, status=ProxyStatus.HEALTHY),
         Proxy(host="2.2.2.2", port=8080, score=80.0, status=ProxyStatus.HEALTHY),
     )
-    middleware = ProxyForgeMiddleware(pool, max_retries=2, retry_http_codes=frozenset({403}))
+    middleware = ProxyForgeMiddleware(
+        pool, strategy="best", max_retries=2, retry_http_codes=frozenset({403})
+    )
 
     request = SimpleNamespace(
         url="http://example.com",

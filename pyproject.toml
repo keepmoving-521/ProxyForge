@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proxyforge"
+version = "0.3.0"
+description = "轻量级、高可用的代理池管理与调度框架"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "ProxyForge Contributors" }]
+keywords = ["proxy", "proxy-pool", "crawler", "scraping", "health-check"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: Proxy Servers",
+]
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "fakeredis>=2.21",
+    "pyyaml>=6.0",
+]
+redis = [
+    "redis>=5.0",
+]
+aiohttp = [
+    "aiohttp>=3.9",
+]
+scrapy = [
+    "scrapy>=2.11",
+]
+all = [
+    "redis>=5.0",
+    "aiohttp>=3.9",
+    "scrapy>=2.11",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "fakeredis>=2.21",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+proxyforge = "proxyforge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["proxyforge*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

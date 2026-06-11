@@ -3,7 +3,8 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from proxyforge.integrations.scrapy import ProxyForgeMiddleware
+from proxyforge.config import ProxyForgeConfig
+from proxyforge.integrations.scrapy import LEASE_META_KEY, ProxyForgeMiddleware
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.pool import ProxyPool
 
@@ -20,21 +21,27 @@ def test_scrapy_middleware_assigns_proxy():
 
     assert request.meta["proxy"] == proxy.url
     assert request.meta["proxyforge_proxy"] is proxy
+    assert request.meta[LEASE_META_KEY].proxy is proxy
     assert request.meta["download_slot"] == proxy.key
 
 
 def test_scrapy_middleware_reports_success_and_failure():
-    pool = ProxyPool()
+    pool = ProxyPool(ProxyForgeConfig(lease_enabled=False))
     proxy = Proxy(host="1.2.3.4", port=8080, score=90.0, status=ProxyStatus.HEALTHY)
     pool.add_proxy(proxy)
     middleware = ProxyForgeMiddleware(pool)
 
+    lease = pool.acquire_lease()
     request = SimpleNamespace(
         url="http://example.com",
-        meta={"proxyforge_proxy": proxy, "_proxyforge_start": 0.0},
+        meta={
+            "proxyforge_proxy": proxy,
+            LEASE_META_KEY: lease,
+            "_proxyforge_start": 0.0,
+        },
     )
     response_ok = SimpleNamespace(status=200)
-    response_fail = SimpleNamespace(status=503)
+    response_fail = SimpleNamespace(status=500)
 
     middleware.process_response(request, response_ok, spider=None)
     assert proxy.success_count == 1

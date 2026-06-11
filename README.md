@@ -78,6 +78,8 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 
 示例配置见 [examples/config.example.yaml](examples/config.example.yaml)。
 
+**系统架构、实现逻辑与流程图** 请参阅 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 ### 健康检测 URL（按标签 / 任务 / Spider）
 
 ```python

@@ -28,6 +28,8 @@ def _coerce_value(field_name: str, raw: str) -> Any:
         "health_check_interval",
         "unhealthy_check_interval",
         "banned_check_interval",
+        "unhealthy_backoff_factor",
+        "unhealthy_check_max_interval",
         "min_score",
         "score_decay_per_failure",
         "score_boost_per_success",
@@ -48,6 +50,8 @@ class ProxyForgeConfig:
     health_check_timeout: float = 10.0
     health_check_interval: float = 60.0
     unhealthy_check_interval: float = 300.0
+    unhealthy_backoff_factor: float = 2.0
+    unhealthy_check_max_interval: float = 3600.0
     banned_check_interval: float = 300.0
     health_check_concurrency: int = 20
     health_check_batch_size: int = 100
@@ -115,6 +119,8 @@ class ProxyForgeConfig:
             "health_check_timeout": self.health_check_timeout,
             "health_check_interval": self.health_check_interval,
             "unhealthy_check_interval": self.unhealthy_check_interval,
+            "unhealthy_backoff_factor": self.unhealthy_backoff_factor,
+            "unhealthy_check_max_interval": self.unhealthy_check_max_interval,
             "banned_check_interval": self.banned_check_interval,
             "health_check_concurrency": self.health_check_concurrency,
             "health_check_batch_size": self.health_check_batch_size,

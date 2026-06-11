@@ -60,7 +60,9 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 | `min_score` | 最低可用评分 | 20 |
 | `health_check_concurrency` | 健康检测并发数 | 20 |
 | `health_check_batch_size` | 分批检测每批大小 | 100 |
-| `unhealthy_check_interval` | UNHEALTHY 降频间隔（秒） | 300 |
+| `unhealthy_check_interval` | UNHEALTHY 复检基础间隔（秒） | 300 |
+| `unhealthy_backoff_factor` | UNHEALTHY 指数退避倍数 | 2.0 |
+| `unhealthy_check_max_interval` | UNHEALTHY 最大复检间隔（秒） | 3600 |
 | `banned_check_interval` | BANNED 冷却后再检间隔（秒） | 300 |
 
 示例配置见 [examples/config.example.yaml](examples/config.example.yaml)。

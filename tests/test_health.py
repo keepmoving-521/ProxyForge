@@ -39,8 +39,47 @@ def test_should_check_unhealthy_after_interval():
         port=8080,
         status=ProxyStatus.UNHEALTHY,
         last_check_at=now - 301.0,
+        unhealthy_recheck_attempts=0,
     )
     assert checker.should_check(proxy, now) is True
+
+
+def test_unhealthy_exponential_backoff():
+    config = ProxyForgeConfig(
+        unhealthy_check_interval=300.0,
+        unhealthy_backoff_factor=2.0,
+        unhealthy_check_max_interval=3600.0,
+    )
+    checker = HealthChecker(config)
+    now = 1000.0
+    proxy = Proxy(
+        host="1.1.1.1",
+        port=8080,
+        status=ProxyStatus.UNHEALTHY,
+        last_check_at=900.0,
+        unhealthy_recheck_attempts=1,
+    )
+    assert checker.unhealthy_recheck_delay(proxy) == 600.0
+    assert checker.should_check(proxy, now) is False
+    assert checker.should_check(proxy, 1501.0) is True
+
+
+def test_unhealthy_recovery_on_success():
+    proxy = Proxy(host="1.1.1.1", port=8080, status=ProxyStatus.UNHEALTHY)
+    proxy.unhealthy_at = time.time()
+    proxy.unhealthy_recheck_attempts = 2
+    proxy.record_success(100.0)
+    assert proxy.status == ProxyStatus.HEALTHY
+    assert proxy.unhealthy_at is None
+    assert proxy.unhealthy_recheck_attempts == 0
+
+
+def test_unhealthy_failed_recheck_increments_attempts():
+    proxy = Proxy(host="1.1.1.1", port=8080, status=ProxyStatus.UNHEALTHY)
+    proxy.consecutive_failures = 1
+    proxy.record_failure(max_consecutive_failures=5)
+    assert proxy.status == ProxyStatus.UNHEALTHY
+    assert proxy.unhealthy_recheck_attempts == 1
 
 
 def test_should_skip_banned_during_cooldown():

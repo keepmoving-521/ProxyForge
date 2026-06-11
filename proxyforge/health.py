@@ -39,6 +39,14 @@ class HealthChecker:
         self.config = config or ProxyForgeConfig()
         self.scorer = scorer or ProxyScorer(self.config)
 
+    def unhealthy_recheck_delay(self, proxy: Proxy) -> float:
+        """UNHEALTHY 代理的指数退避复检间隔（秒）。"""
+        base = self.config.unhealthy_check_interval
+        factor = self.config.unhealthy_backoff_factor
+        max_interval = self.config.unhealthy_check_max_interval
+        exponent = max(proxy.unhealthy_recheck_attempts, 0)
+        return min(base * (factor**exponent), max_interval)
+
     def should_check(self, proxy: Proxy, now: float | None = None) -> bool:
         """根据代理状态与上次检测时间判断是否需要检测。"""
         current = now if now is not None else time.time()
@@ -56,7 +64,7 @@ class HealthChecker:
             return elapsed >= self.config.banned_check_interval
 
         if proxy.status == ProxyStatus.UNHEALTHY:
-            return elapsed >= self.config.unhealthy_check_interval
+            return elapsed >= self.unhealthy_recheck_delay(proxy)
 
         return elapsed >= self.config.health_check_interval
 
@@ -86,6 +94,7 @@ class HealthChecker:
         client: httpx.AsyncClient,
     ) -> bool:
         headers = {"User-Agent": self.config.user_agent}
+        was_unhealthy = proxy.status == ProxyStatus.UNHEALTHY
         try:
             start = time.perf_counter()
             response = await client.get(
@@ -102,10 +111,19 @@ class HealthChecker:
 
         if ok:
             proxy.record_success(latency_ms)
+            if was_unhealthy:
+                logger.info("Proxy %s recovered from UNHEALTHY", proxy.key)
         else:
             proxy.record_failure(
                 max_consecutive_failures=self.config.max_consecutive_failures
             )
+            if proxy.status == ProxyStatus.UNHEALTHY:
+                delay = self.unhealthy_recheck_delay(proxy)
+                logger.debug(
+                    "Proxy %s still UNHEALTHY, next recheck in %.0fs",
+                    proxy.key,
+                    delay,
+                )
 
         self.scorer.update_after_check(proxy, ok)
         return ok

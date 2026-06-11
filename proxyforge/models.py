@@ -43,6 +43,8 @@ class Proxy:
     last_success_at: float | None = None
     consecutive_failures: int = 0
     banned_at: float | None = None
+    unhealthy_at: float | None = None
+    unhealthy_recheck_attempts: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -74,6 +76,8 @@ class Proxy:
         self.total_latency_ms += latency_ms
         self.consecutive_failures = 0
         self.banned_at = None
+        self.unhealthy_at = None
+        self.unhealthy_recheck_attempts = 0
         self.status = ProxyStatus.HEALTHY
         now = time.time()
         self.last_check_at = now
@@ -86,8 +90,21 @@ class Proxy:
         if self.consecutive_failures >= max_consecutive_failures:
             self.status = ProxyStatus.BANNED
             self.banned_at = time.time()
-        elif self.status == ProxyStatus.HEALTHY:
+            self.unhealthy_at = None
+            self.unhealthy_recheck_attempts = 0
+        elif self.status == ProxyStatus.UNHEALTHY:
+            self.unhealthy_recheck_attempts += 1
+        elif self.status in (ProxyStatus.HEALTHY, ProxyStatus.UNKNOWN):
             self.status = ProxyStatus.UNHEALTHY
+            self.unhealthy_at = self.last_check_at
+            self.unhealthy_recheck_attempts = 0
+
+    def recover_from_unhealthy(self) -> None:
+        """复检通过后解除 UNHEALTHY 状态。"""
+        self.status = ProxyStatus.HEALTHY
+        self.unhealthy_at = None
+        self.unhealthy_recheck_attempts = 0
+        self.consecutive_failures = 0
 
     def recover_from_ban(self) -> None:
         """冷却结束后解除封禁，等待重新检测。"""

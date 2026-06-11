@@ -25,6 +25,8 @@ def proxy_to_dict(proxy: Proxy) -> dict[str, Any]:
         "last_success_at": proxy.last_success_at,
         "consecutive_failures": proxy.consecutive_failures,
         "banned_at": proxy.banned_at,
+        "unhealthy_at": proxy.unhealthy_at,
+        "unhealthy_recheck_attempts": proxy.unhealthy_recheck_attempts,
         "metadata": proxy.metadata,
     }
 
@@ -48,5 +50,7 @@ def proxy_from_dict(data: dict[str, Any]) -> Proxy:
         last_success_at=data.get("last_success_at"),
         consecutive_failures=int(data.get("consecutive_failures", 0)),
         banned_at=data.get("banned_at"),
+        unhealthy_at=data.get("unhealthy_at"),
+        unhealthy_recheck_attempts=int(data.get("unhealthy_recheck_attempts", 0)),
         metadata=dict(data.get("metadata") or {}),
     )

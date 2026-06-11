@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
@@ -11,7 +12,7 @@ from typing import Any
 def _coerce_value(field_name: str, raw: str) -> Any:
     if field_name == "tags":
         return frozenset(p.strip() for p in raw.split(",") if p.strip())
-    if field_name in {"allow_unknown_proxies", "lease_enabled", "score_window_enabled", "persist_sync_fallback"}:
+    if field_name in {"allow_unknown_proxies", "lease_enabled", "score_window_enabled", "persist_sync_fallback", "distributed_enabled", "distributed_sync_on_acquire"}:
         return raw.lower() in {"1", "true", "yes", "on"}
     if field_name in {
         "max_consecutive_failures",
@@ -77,6 +78,9 @@ class ProxyForgeConfig:
     lease_enabled: bool = True
     lease_ttl_seconds: float = 60.0
     max_leases_per_proxy: int = 1
+    distributed_enabled: bool = False
+    distributed_sync_on_acquire: bool = True
+    instance_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     max_proxy_retries: int = 3
     retry_http_codes: frozenset[int] = field(
         default_factory=lambda: frozenset({403, 429, 502, 503, 504})
@@ -156,6 +160,9 @@ class ProxyForgeConfig:
             "lease_enabled": self.lease_enabled,
             "lease_ttl_seconds": self.lease_ttl_seconds,
             "max_leases_per_proxy": self.max_leases_per_proxy,
+            "distributed_enabled": self.distributed_enabled,
+            "distributed_sync_on_acquire": self.distributed_sync_on_acquire,
+            "instance_id": self.instance_id,
             "max_proxy_retries": self.max_proxy_retries,
             "retry_http_codes": sorted(self.retry_http_codes),
             "user_agent": self.user_agent,

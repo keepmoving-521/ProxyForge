@@ -25,6 +25,12 @@ allow_unknown_proxies: false
 lease_enabled: true
 lease_ttl_seconds: 60.0
 max_leases_per_proxy: 1
+
+# 分布式调度（多进程/多机共享 Redis 租约与评分）
+distributed_enabled: false
+distributed_sync_on_acquire: true
+instance_id: node-1
+
 max_proxy_retries: 3
 retry_http_codes:
   - 403

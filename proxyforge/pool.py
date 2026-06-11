@@ -17,6 +17,8 @@ from proxyforge.router import ProxyRouter
 from proxyforge.scoring import ProxyScorer
 from proxyforge.storage.base import BaseStorage
 from proxyforge.storage.persist import PersistBuffer
+from proxyforge.storage.redis import RedisStorage
+from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,17 @@ class ProxyPool:
             ttl_seconds=self.config.lease_ttl_seconds,
             max_per_proxy=self.config.max_leases_per_proxy,
         )
+        self._distributed: RedisLeaseCoordinator | None = None
+        if (
+            self.config.distributed_enabled
+            and isinstance(storage, RedisStorage)
+        ):
+            self._distributed = RedisLeaseCoordinator(
+                storage,
+                ttl_seconds=self.config.lease_ttl_seconds,
+                max_per_proxy=self.config.max_leases_per_proxy,
+                instance_id=self.config.instance_id,
+            )
         self._health_task: asyncio.Task | None = None
         self._health_check_context: HealthCheckContext | None = None
         self._lock = asyncio.Lock()
@@ -98,6 +111,22 @@ class ProxyPool:
         existing.provider = incoming.provider
         existing.tags = existing.tags | incoming.tags
         existing.metadata = {**existing.metadata, **incoming.metadata}
+
+    @staticmethod
+    def merge_runtime_state(local: Proxy, remote: Proxy) -> None:
+        """将 Redis 中的运行时统计合并到本地代理。"""
+        local.status = remote.status
+        local.score = remote.score
+        local.success_count = remote.success_count
+        local.failure_count = remote.failure_count
+        local.total_latency_ms = remote.total_latency_ms
+        local.last_check_at = remote.last_check_at
+        local.last_success_at = remote.last_success_at
+        local.consecutive_failures = remote.consecutive_failures
+        local.banned_at = remote.banned_at
+        local.unhealthy_at = remote.unhealthy_at
+        local.unhealthy_recheck_attempts = remote.unhealthy_recheck_attempts
+        local.recent_events = list(remote.recent_events)
 
     def remove_proxy(self, key: str) -> bool:
         return self._proxies.pop(key, None) is not None
@@ -300,6 +329,14 @@ class ProxyPool:
     ) -> ProxyLease:
         """获取代理并创建租约，防止并发重复使用。"""
         with self._sync_lock:
+            if self._distributed is not None and self.config.lease_enabled:
+                return self._distributed.acquire_lease(
+                    self,
+                    strategy=strategy,
+                    tags=tags,
+                    exclude_keys=exclude_keys,
+                    sync_on_acquire=self.config.distributed_sync_on_acquire,
+                )
             proxy = self._select_proxy(
                 strategy=strategy, tags=tags, exclude_keys=exclude_keys
             )
@@ -320,6 +357,12 @@ class ProxyPool:
             return
         with self._sync_lock:
             self._lease_manager.release(lease)
+            if (
+                self._distributed is not None
+                and isinstance(lease, ProxyLease)
+                and lease.lease_id
+            ):
+                self._distributed.release_lease(lease)
 
     def report_success(self, proxy: Proxy, latency_ms: float) -> None:
         with self._sync_lock:

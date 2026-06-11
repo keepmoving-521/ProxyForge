@@ -62,6 +62,9 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 | `score_window_max_events` | 窗口内最多保留事件数 | 500 |
 | `persist_batch_size` | 持久化批量 flush 大小 | 10 |
 | `persist_sync_fallback` | 无事件循环时使用同步 Redis | true |
+| `distributed_enabled` | 启用 Redis 分布式租约（需 RedisStorage） | false |
+| `distributed_sync_on_acquire` | 获取租约前从 Redis 同步评分/状态 | true |
+| `instance_id` | 分布式实例标识（租约 owner） | 随机 12 位 hex |
 | `min_score` | 最低可用评分 | 20 |
 | `health_check_concurrency` | 健康检测并发数 | 20 |
 | `health_check_batch_size` | 分批检测每批大小 | 100 |
@@ -152,6 +155,30 @@ await pool.persist()       # 手动保存
 await storage.close()
 ```
 
+### 分布式调度（多进程 / 多机）
+
+启用 `distributed_enabled` 后，租约通过 Redis `SETNX + TTL` 在实例间互斥；`acquire_lease` 会跳过已被其他进程占用的 IP，并在获取前可选地从 Redis 同步全局评分与运行时状态。
+
+```python
+from proxyforge import ProxyForgeConfig, ProxyPool
+from proxyforge.storage.redis import RedisStorage
+
+config = ProxyForgeConfig(
+    lease_enabled=True,
+    distributed_enabled=True,
+    instance_id="worker-1",  # 每个进程/机器唯一
+)
+storage = RedisStorage(url="redis://localhost:6379/0")
+pool = ProxyPool(config, storage=storage, auto_persist=True)
+
+await pool.load()
+lease = pool.acquire_lease(strategy="best")
+try:
+    ...
+finally:
+    pool.release_lease(lease)
+```
+
 ## Scrapy 集成
 
 ```python
@@ -219,6 +246,9 @@ proxyforge/
 ├── scoring.py          # 动态评分
 ├── router.py           # 智能路由
 ├── lease.py            # 代理租约
+├── storage/
+│   ├── redis.py        # Redis 持久化
+│   └── redis_coordinator.py  # 分布式租约协调
 ├── serialization.py    # 序列化
 ├── config.py           # 配置
 ├── providers/          # 服务商接入

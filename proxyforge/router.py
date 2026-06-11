@@ -73,12 +73,36 @@ class ProxyRouter:
         tags: frozenset[str] | None = None,
         exclude_keys: frozenset[str] | None = None,
     ) -> Proxy:
-        candidates = self.filter_available(proxies, tags=tags, exclude_keys=exclude_keys)
+        candidates = self.iter_candidates(
+            proxies, strategy="round_robin", tags=tags, exclude_keys=exclude_keys
+        )
         if not candidates:
             raise ProxyNotAvailableError("No available proxy matching criteria")
-        candidates.sort(key=lambda p: p.key)
-        if not hasattr(self, "_rr_index"):
-            self._rr_index = 0
-        proxy = candidates[self._rr_index % len(candidates)]
-        self._rr_index += 1
-        return proxy
+        return candidates[0]
+
+    def iter_candidates(
+        self,
+        proxies: Iterable[Proxy],
+        *,
+        strategy: str = "weighted",
+        tags: frozenset[str] | None = None,
+        exclude_keys: frozenset[str] | None = None,
+    ) -> list[Proxy]:
+        candidates = self.filter_available(proxies, tags=tags, exclude_keys=exclude_keys)
+        if not candidates:
+            return []
+
+        if strategy == "best":
+            return sorted(candidates, key=lambda p: p.score, reverse=True)
+
+        if strategy == "round_robin":
+            candidates.sort(key=lambda p: p.key)
+            if not hasattr(self, "_rr_index"):
+                self._rr_index = 0
+            index = self._rr_index % len(candidates)
+            self._rr_index += 1
+            return candidates[index:] + candidates[:index]
+
+        ordered = candidates.copy()
+        random.shuffle(ordered)
+        return sorted(ordered, key=lambda p: p.score, reverse=True)

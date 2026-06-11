@@ -60,6 +60,20 @@ class RedisStorage(BaseStorage):
             self._sync_client = redis.from_url(self.url, decode_responses=True)
         return self._sync_client
 
+    @property
+    def sync_client(self) -> redis.Redis:
+        return self._get_sync_client()
+
+    def load_proxy_sync(self, key: str) -> Proxy | None:
+        raw = self._get_sync_client().get(self._proxy_key(key))
+        if not raw:
+            return None
+        try:
+            return proxy_from_dict(json.loads(raw))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            logger.warning("Skip corrupted proxy entry: %s", key)
+            return None
+
     async def close(self) -> None:
         if self._client and self._owns_client:
             await self._client.aclose()

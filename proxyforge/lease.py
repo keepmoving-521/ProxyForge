@@ -45,6 +45,16 @@ class LeaseManager:
         self._proxy_lease_ids: dict[str, set[str]] = {}
         self._lock = threading.Lock()
 
+    def register(self, lease: ProxyLease) -> ProxyLease:
+        """注册已在外部（如 Redis）创建的租约。"""
+        with self._lock:
+            self._cleanup_expired_locked()
+            self._leases[lease.lease_id] = lease
+            self._proxy_lease_ids.setdefault(lease.proxy.key, set()).add(
+                lease.lease_id
+            )
+            return lease
+
     def create(self, proxy: Proxy) -> ProxyLease:
         with self._lock:
             self._cleanup_expired_locked()

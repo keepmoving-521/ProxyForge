@@ -62,7 +62,7 @@ async def _cmd_check(args: argparse.Namespace) -> int:
     provider = StaticListProvider(lines=args.proxies)
     pool = ProxyPool(config, providers=[provider])
     await pool.refresh_from_providers()
-    results = await pool.check_health()
+    results = await pool.check_health(force=True)
 
     for proxy in pool.proxies:
         ok = results.get(proxy.key, False)

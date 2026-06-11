@@ -58,6 +58,10 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 | `max_proxy_retries` | 失败换 IP 最大重试次数 | 3 |
 | `retry_http_codes` | 触发换 IP 的 HTTP 状态码 | 403,429,502,503,504 |
 | `min_score` | 最低可用评分 | 20 |
+| `health_check_concurrency` | 健康检测并发数 | 20 |
+| `health_check_batch_size` | 分批检测每批大小 | 100 |
+| `unhealthy_check_interval` | UNHEALTHY 降频间隔（秒） | 300 |
+| `banned_check_interval` | BANNED 冷却后再检间隔（秒） | 300 |
 
 示例配置见 [examples/config.example.yaml](examples/config.example.yaml)。
 

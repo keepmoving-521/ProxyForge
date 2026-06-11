@@ -140,12 +140,21 @@ class ProxyPool:
         await self._maybe_persist()
         return total
 
-    async def check_health(self, *, concurrency: int = 20) -> dict[str, bool]:
-        results = await self._checker.check_all(
-            self._proxies.values(), concurrency=concurrency
+    async def check_health(
+        self,
+        *,
+        concurrency: int | None = None,
+        batch_size: int | None = None,
+        force: bool = False,
+    ) -> dict[str, bool]:
+        summary = await self._checker.check_all(
+            self._proxies.values(),
+            concurrency=concurrency,
+            batch_size=batch_size,
+            force=force,
         )
         await self._maybe_persist()
-        return results
+        return summary.results
 
     async def start_background_health_check(self) -> None:
         if self._health_task and not self._health_task.done():

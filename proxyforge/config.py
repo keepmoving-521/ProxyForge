@@ -13,13 +13,21 @@ def _coerce_value(field_name: str, raw: str) -> Any:
         return frozenset(p.strip() for p in raw.split(",") if p.strip())
     if field_name in {"allow_unknown_proxies", "lease_enabled"}:
         return raw.lower() in {"1", "true", "yes", "on"}
-    if field_name in {"max_consecutive_failures", "max_leases_per_proxy", "max_proxy_retries"}:
+    if field_name in {
+        "max_consecutive_failures",
+        "max_leases_per_proxy",
+        "max_proxy_retries",
+        "health_check_concurrency",
+        "health_check_batch_size",
+    }:
         return int(raw)
     if field_name == "retry_http_codes":
         return frozenset(int(code.strip()) for code in raw.split(",") if code.strip())
     if field_name in {
         "health_check_timeout",
         "health_check_interval",
+        "unhealthy_check_interval",
+        "banned_check_interval",
         "min_score",
         "score_decay_per_failure",
         "score_boost_per_success",
@@ -39,6 +47,10 @@ class ProxyForgeConfig:
     health_check_url: str = "http://httpbin.org/ip"
     health_check_timeout: float = 10.0
     health_check_interval: float = 60.0
+    unhealthy_check_interval: float = 300.0
+    banned_check_interval: float = 300.0
+    health_check_concurrency: int = 20
+    health_check_batch_size: int = 100
     min_score: float = 20.0
     max_consecutive_failures: int = 3
     score_decay_per_failure: float = 10.0
@@ -102,6 +114,10 @@ class ProxyForgeConfig:
             "health_check_url": self.health_check_url,
             "health_check_timeout": self.health_check_timeout,
             "health_check_interval": self.health_check_interval,
+            "unhealthy_check_interval": self.unhealthy_check_interval,
+            "banned_check_interval": self.banned_check_interval,
+            "health_check_concurrency": self.health_check_concurrency,
+            "health_check_batch_size": self.health_check_batch_size,
             "min_score": self.min_score,
             "max_consecutive_failures": self.max_consecutive_failures,
             "score_decay_per_failure": self.score_decay_per_failure,

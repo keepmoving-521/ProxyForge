@@ -2,6 +2,10 @@
 health_check_url: http://httpbin.org/ip
 health_check_timeout: 10.0
 health_check_interval: 60.0
+unhealthy_check_interval: 300.0
+banned_check_interval: 300.0
+health_check_concurrency: 20
+health_check_batch_size: 100
 
 min_score: 20.0
 max_consecutive_failures: 3

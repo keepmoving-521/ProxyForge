@@ -4,8 +4,8 @@ import time
 
 from proxyforge.config import ProxyForgeConfig
 from proxyforge.models import Proxy
-from proxyforge.score_window import append_score_event, window_stats
-from proxyforge.scoring import ProxyScorer
+from proxyforge.services import ProxyScorer
+from proxyforge.services.score_window import append_score_event, window_stats
 
 
 def test_window_stats_ignores_old_events():

@@ -280,11 +280,6 @@ proxyforge/
 ├── router.py                # 路由策略（best / weighted / round_robin）
 ├── lease.py                 # 租约模型与 LeaseManager
 ├── rate_limit.py            # 本地限流 + RateLimiter 协议
-│
-├── health.py                # 兼容 re-export → services.health
-├── health_urls.py           # 兼容 re-export
-├── scoring.py               # 兼容 re-export
-├── score_window.py          # 兼容 re-export
 ├── serialization.py         # 持久化序列化
 │
 ├── providers/               # 代理来源

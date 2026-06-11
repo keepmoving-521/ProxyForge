@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from proxyforge.config import ProxyForgeConfig
-from proxyforge.health import HealthChecker
+from proxyforge.services import HealthChecker
 from proxyforge.models import Proxy, ProxyStatus
 
 

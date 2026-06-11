@@ -6,7 +6,7 @@ from proxyforge.config import ProxyForgeConfig
 from proxyforge.models import Proxy, ProxyProtocol, ProxyStatus
 from proxyforge.providers.static import StaticListProvider, parse_proxy_lines
 from proxyforge.router import ProxyRouter
-from proxyforge.scoring import ProxyScorer
+from proxyforge.services import ProxyScorer
 
 
 def test_proxy_url_without_auth():

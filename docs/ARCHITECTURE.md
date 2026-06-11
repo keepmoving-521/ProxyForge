@@ -23,6 +23,18 @@
 15. [端到端请求生命周期](#15-端到端请求生命周期)
 16. [扩展指南](#16-扩展指南)
 
+**源码级图表（类图 + 时序图）：**
+
+17. [ProxyPool 组合结构（类图）](#17-proxypool-组合结构类图)
+18. [acquire_lease 源码时序（分布式路径）](#18-acquire_lease-源码时序分布式路径)
+19. [租约子系统（类图 + 时序）](#19-租约子系统类图--时序)
+20. [健康检测子系统（类图 + 时序）](#20-健康检测子系统类图--时序)
+21. [评分子系统（类图 + 时序）](#21-评分子系统类图--时序)
+22. [存储与持久化（类图 + 时序）](#22-存储与持久化类图--时序)
+23. [Provider 子系统（类图 + 时序）](#23-provider-子系统类图--时序)
+24. [Scrapy 中间件（源码时序）](#24-scrapy-中间件源码时序)
+25. [httpx 客户端（源码时序）](#25-httpx-客户端源码时序)
+
 ---
 
 ## 1. 系统总览
@@ -737,4 +749,737 @@ sequenceDiagram
 
 ---
 
+## 17. ProxyPool 组合结构（类图）
+
+`ProxyPool` 是**编排者（Facade）**，自身不实现检测/路由/租约细节，而是组合各子系统并在 `_sync_lock` 下暴露 API。
+
+```mermaid
+classDiagram
+    class ProxyPool {
+        -ProxyForgeConfig config
+        -dict~str,Proxy~ _proxies
+        -list~BaseProvider~ _providers
+        -BaseStorage _storage
+        -PersistBuffer _persist_buffer
+        -ProxyScorer _scorer
+        -HealthChecker _checker
+        -ProxyRouter _router
+        -LeaseManager _lease_manager
+        -RedisLeaseCoordinator _distributed
+        -RateLimiter _rate_limiter
+        -LeaseAcquisitionService _lease_service
+        -Lock _sync_lock
+        +acquire_lease() ProxyLease
+        +release_lease()
+        +report_success()
+        +report_failure()
+        +check_health() dict
+        +refresh_from_providers() int
+    }
+
+    class LeaseAcquisitionService {
+        -ProxyForgeConfig _config
+        -LeaseManager _lease_manager
+        -ProxyRouter _router
+        -RateLimiter _rate_limiter
+        -RedisLeaseCoordinator _distributed
+        +acquire() ProxyLease
+        +iter_candidates() list~Proxy~
+        +try_create_lease() ProxyLease
+        +apply_rate_limit_or_abort() ProxyLease
+        +abort_lease()
+    }
+
+    class HealthChecker {
+        -ProxyForgeConfig config
+        -ProxyScorer scorer
+        -HealthCheckUrlResolver _url_resolver
+        +check_all() HealthCheckSummary
+        +check_one() bool
+        +should_check() bool
+    }
+
+    class ProxyRouter {
+        +filter_available() list~Proxy~
+        +iter_candidates() list~Proxy~
+        +select_weighted_random() Proxy
+    }
+
+    class LeaseManager {
+        -dict _leases
+        -dict _proxy_lease_ids
+        +create() ProxyLease
+        +register() ProxyLease
+        +release()
+        +get_excluded_keys() frozenset
+    }
+
+    class PersistBuffer {
+        -BaseStorage _storage
+        -dict _dirty
+        +mark_dirty()
+        +flush_async() int
+        +flush_sync() int
+    }
+
+    ProxyPool *-- LeaseAcquisitionService
+    ProxyPool *-- HealthChecker
+    ProxyPool *-- ProxyRouter
+    ProxyPool *-- LeaseManager
+    ProxyPool *-- ProxyScorer
+    ProxyPool o-- PersistBuffer
+    ProxyPool o-- RedisLeaseCoordinator
+    ProxyPool o-- RateLimiter
+    ProxyPool o-- BaseStorage
+    ProxyPool o-- BaseProvider
+
+    LeaseAcquisitionService --> LeaseManager
+    LeaseAcquisitionService --> ProxyRouter
+    LeaseAcquisitionService --> RateLimiter
+    LeaseAcquisitionService --> RedisLeaseCoordinator
+
+    HealthChecker --> ProxyScorer
+    HealthChecker --> HealthCheckUrlResolver
+```
+
+**装配入口（`ProxyPool.__init__`）：**
+
+| 字段 | 创建方式 |
+|------|----------|
+| `_scorer` | `ProxyScorer(config)` |
+| `_checker` | `HealthChecker(config, _scorer)` |
+| `_router` | `ProxyRouter(config)` |
+| `_lease_manager` | `LeaseManager(ttl, max_per_proxy)` |
+| `_distributed` | `build_distributed_coordinator(config, storage)` 或注入 |
+| `_rate_limiter` | `build_rate_limiter(config, storage)` 或注入 |
+| `_lease_service` | `LeaseAcquisitionService(...)` |
+| `_persist_buffer` | `auto_persist` 时 `PersistBuffer(storage, ...)` |
+
+---
+
+## 18. acquire_lease 源码时序（分布式路径）
+
+对应调用链：`ProxyPool.acquire_lease` → `LeaseAcquisitionService.acquire`（持有 `_sync_lock`）。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as 调用方
+    participant Pool as ProxyPool
+    participant Svc as LeaseAcquisitionService
+    participant Router as ProxyRouter
+    participant LM as LeaseManager
+    participant Redis as RedisLeaseCoordinator
+    participant RL as RedisRateLimiter
+    participant Storage as RedisStorage
+
+    Client->>Pool: acquire_lease(strategy, tags, exclude_keys)
+    Pool->>Pool: _sync_lock.acquire()
+    Pool->>Svc: acquire(sync_on_acquire=config.distributed_sync_on_acquire)
+
+    Svc->>LM: get_excluded_keys()
+    LM-->>Svc: local_excluded
+    Svc->>Router: iter_candidates(proxies, strategy, exclude)
+    Router-->>Svc: ordered candidates[]
+
+    loop 每个 candidate proxy
+        Svc->>Redis: is_proxy_leased(key)
+        alt 已被其他实例占用
+            Redis-->>Svc: true → continue
+        end
+        Svc->>RL: is_at_capacity(key)
+        alt QPS/并发已满
+            RL-->>Svc: true → continue
+        end
+
+        opt distributed_sync_on_acquire
+            Svc->>Redis: sync_proxy_state(proxy)
+            Redis->>Storage: load_proxy_sync(key)
+            Storage-->>Redis: remote Proxy
+            Redis->>Redis: merge_runtime_state(local, remote)
+        end
+
+        Svc->>Redis: try_acquire(proxy)
+        Redis->>Redis: SETNX dlease:key:slot EX ttl
+        alt SETNX 失败
+            Redis-->>Svc: None → continue
+        end
+        Redis-->>Svc: ProxyLease(lease_id)
+
+        Svc->>LM: register(remote_lease)
+
+        Svc->>RL: try_acquire(key)
+        alt 限流失败
+            RL-->>Svc: false
+            Svc->>Svc: abort_lease(lease)
+            Note over Svc: release Redis + LM
+        else 成功
+            RL-->>Svc: true (rate_slot_held=True)
+            Svc-->>Pool: ProxyLease
+        end
+    end
+
+    Pool-->>Client: ProxyLease
+    Note over Pool: 全部候选失败 → ProxyNotAvailableError
+```
+
+**本地路径差异：** 无 Redis 步骤，`try_create_lease` 直接调用 `LeaseManager.create(proxy)`。
+
+---
+
+## 19. 租约子系统（类图 + 时序）
+
+### 19.1 类图
+
+```mermaid
+classDiagram
+    class ProxyLease {
+        +str lease_id
+        +Proxy proxy
+        +float created_at
+        +float ttl_seconds
+        +bool rate_slot_held
+        +is_expired bool
+        +remaining_seconds float
+    }
+
+    class LeaseManager {
+        -dict~str,ProxyLease~ _leases
+        -dict~str,set~ _proxy_lease_ids
+        -Lock _lock
+        +create(proxy) ProxyLease
+        +register(lease) ProxyLease
+        +release(lease)
+        +get_excluded_keys() frozenset
+        -_cleanup_expired_locked()
+    }
+
+    class RedisLeaseCoordinator {
+        -RedisStorage _storage
+        +float ttl_seconds
+        +int max_per_proxy
+        +str instance_id
+        +try_acquire(proxy) ProxyLease
+        +release_lease(lease) bool
+        +is_proxy_leased(key) bool
+        +sync_proxy_state(local) bool
+        -_slot_key(key, slot) str
+    }
+
+    class RateLimiter {
+        <<interface>>
+        +is_at_capacity(key) bool
+        +try_acquire(key) bool
+        +release(key)
+    }
+
+    class ProxyRateLimiter {
+        -dict _concurrent
+        -dict _request_times
+    }
+
+    class RedisRateLimiter {
+        -RedisStorage _storage
+        +Lua scripts
+    }
+
+    LeaseManager ..> ProxyLease : creates
+    RedisLeaseCoordinator ..> ProxyLease : creates
+    RateLimiter <|.. ProxyRateLimiter
+    RateLimiter <|.. RedisRateLimiter
+    RedisLeaseCoordinator --> RedisStorage
+    RedisRateLimiter --> RedisStorage
+```
+
+### 19.2 release_lease 时序
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Pool as ProxyPool
+    participant Svc as LeaseAcquisitionService
+    participant RL as RateLimiter
+    participant LM as LeaseManager
+    participant Redis as RedisLeaseCoordinator
+
+    Client->>Pool: release_lease(lease)
+    Pool->>Pool: _sync_lock.acquire()
+
+    alt lease.rate_slot_held
+        Pool->>Svc: release_rate_slot(lease)
+        Svc->>RL: release(proxy.key)
+    end
+
+    alt lease.lease_id 非空
+        Pool->>LM: release(lease)
+        opt _distributed 存在
+            Pool->>Redis: release_lease(lease)
+            Note over Redis: Lua GET==lease_id then DEL
+        end
+    end
+
+    Pool-->>Client: void
+```
+
+---
+
+## 20. 健康检测子系统（类图 + 时序）
+
+### 20.1 类图
+
+```mermaid
+classDiagram
+    class HealthChecker {
+        +ProxyForgeConfig config
+        +ProxyScorer scorer
+        -HealthCheckUrlResolver _url_resolver
+        +check_all(proxies) HealthCheckSummary
+        +check_one(proxy, client) bool
+        +should_check(proxy) bool
+        +filter_due_proxies() tuple
+        +unhealthy_recheck_delay(proxy) float
+        +resolve_url(proxy, context) str
+    }
+
+    class HealthCheckUrlResolver {
+        +ProxyForgeConfig config
+        +resolve(proxy, context) str
+    }
+
+    class HealthCheckContext {
+        +str task
+        +str spider
+        +frozenset tags
+    }
+
+    class HealthCheckSummary {
+        +int checked
+        +int skipped
+        +int passed
+        +int failed
+        +dict results
+    }
+
+    class ProxyScorer {
+        +update_after_check(proxy, success)
+        +compute(proxy) float
+    }
+
+    class Proxy {
+        +record_success(latency_ms)
+        +record_failure()
+    }
+
+    HealthChecker *-- HealthCheckUrlResolver
+    HealthChecker --> ProxyScorer
+    HealthChecker ..> HealthCheckContext
+    HealthChecker ..> HealthCheckSummary
+    HealthChecker ..> Proxy : mutates
+    HealthCheckUrlResolver ..> HealthCheckContext
+```
+
+### 20.2 check_one 时序
+
+```mermaid
+sequenceDiagram
+    participant HC as HealthChecker
+    participant Resolver as HealthCheckUrlResolver
+    participant Proxy as Proxy
+    participant HTTP as httpx.AsyncClient
+    participant Scorer as ProxyScorer
+
+    HC->>Resolver: resolve(proxy, context)
+    Resolver-->>HC: check_url
+
+    HC->>HTTP: GET check_url via proxy.url
+    alt HTTP 200
+        HTTP-->>HC: response
+        HC->>Proxy: record_success(latency_ms)
+        Note over Proxy: status=HEALTHY, recent_events+=
+    else 异常或非 200
+        HTTP-->>HC: error / non-200
+        HC->>Proxy: record_failure(max_consecutive_failures)
+        Note over Proxy: 可能 UNHEALTHY / BANNED
+    end
+
+    HC->>Scorer: update_after_check(proxy, ok)
+    Scorer->>Scorer: boost/decay + compute()
+    HC-->>HC: return ok
+```
+
+### 20.3 check_all 批量时序
+
+```mermaid
+sequenceDiagram
+    participant Pool as ProxyPool
+    participant HC as HealthChecker
+    participant HTTP as httpx.AsyncClient
+
+    Pool->>HC: check_all(_proxies.values())
+    HC->>HC: filter_due_proxies(force?)
+    HC->>HTTP: AsyncClient(limits, timeout)
+
+    loop 每 batch_size 条
+        par Semaphore(concurrency)
+            HC->>HC: check_one(p1)
+            HC->>HC: check_one(p2)
+        end
+    end
+
+    HC-->>Pool: HealthCheckSummary
+    Pool->>Pool: _maybe_persist()
+```
+
+---
+
+## 21. 评分子系统（类图 + 时序）
+
+### 21.1 类图
+
+```mermaid
+classDiagram
+    class ProxyScorer {
+        +ProxyForgeConfig config
+        -_resolve_metrics(proxy) tuple
+        +compute(proxy) float
+        +update_after_check(proxy, success)
+    }
+
+    class WindowStats {
+        +float success_rate
+        +float avg_latency_ms
+        +int sample_count
+    }
+
+    class Proxy {
+        +float score
+        +list~tuple~ recent_events
+        +int success_count
+        +int failure_count
+        +success_rate float
+        +avg_latency_ms float
+    }
+
+    namespace score_window {
+        class window_stats {
+            <<function>>
+        }
+        class prune_score_events {
+            <<function>>
+        }
+        class append_score_event {
+            <<function>>
+        }
+    }
+
+    ProxyScorer ..> window_stats : uses if score_window_enabled
+    window_stats ..> WindowStats
+    window_stats ..> Proxy : reads recent_events
+    ProxyScorer ..> Proxy : reads/writes score
+```
+
+### 21.2 update_after_check 时序
+
+```mermaid
+sequenceDiagram
+    participant Caller as Pool / HealthChecker
+    participant Scorer as ProxyScorer
+    participant Proxy as Proxy
+    participant WS as window_stats
+
+    Caller->>Scorer: update_after_check(proxy, success)
+
+    alt success == True
+        Scorer->>Proxy: score += score_boost_per_success
+    else success == False
+        Scorer->>Proxy: score -= score_decay_per_failure
+    end
+
+    Scorer->>Scorer: compute(proxy)
+
+    alt score_window_enabled
+        Scorer->>WS: window_stats(proxy, window_seconds, max_events)
+        WS->>WS: prune_score_events()
+        WS-->>Scorer: WindowStats | None
+        Note over Scorer: success_rate, avg_latency from window
+    else
+        Note over Scorer: 使用 proxy 累计 success_rate / avg_latency
+    end
+
+    Scorer->>Proxy: score = clamp(raw, 0, 100)
+```
+
+---
+
+## 22. 存储与持久化（类图 + 时序）
+
+### 22.1 类图
+
+```mermaid
+classDiagram
+    class BaseStorage {
+        <<abstract>>
+        +save_proxy(proxy)*
+        +save_proxies_batch(proxies)*
+        +save_all(proxies)*
+        +load_all()* list~Proxy~
+        +supports_sync() bool
+        +save_proxies_sync(proxies)
+    }
+
+    class RedisStorage {
+        +str url
+        +str key_prefix
+        +load_proxy_sync(key) Proxy
+        +sync_client Redis
+        +close()
+    }
+
+    class PersistBuffer {
+        -BaseStorage _storage
+        -dict~str,Proxy~ _dirty
+        +mark_dirty(proxy)
+        +flush_async() int
+        +flush_sync() int
+    }
+
+    class RedisLeaseCoordinator {
+        +try_acquire(proxy)
+        +release_lease(lease)
+    }
+
+    class RedisRateLimiter {
+        +try_acquire(key)
+        +release(key)
+    }
+
+    BaseStorage <|-- RedisStorage
+    PersistBuffer --> BaseStorage
+    RedisLeaseCoordinator --> RedisStorage
+    RedisRateLimiter --> RedisStorage
+
+    namespace serialization {
+        class proxy_to_dict {
+            <<function>>
+        }
+        class proxy_from_dict {
+            <<function>>
+        }
+    }
+
+    RedisStorage ..> proxy_to_dict
+    RedisStorage ..> proxy_from_dict
+```
+
+**Redis 键空间：**
+
+| 键模式 | 用途 |
+|--------|------|
+| `{prefix}:proxies` | Set，代理 key 索引 |
+| `{prefix}:proxy:{key}` | String，JSON 序列化 Proxy |
+| `{prefix}:dlease:{key}:{slot}` | String，分布式租约 |
+| `{prefix}:drqps:{key}` | ZSet，QPS 滑动窗口 |
+| `{prefix}:drconc:{key}` | String，并发计数 |
+
+### 22.2 report_success → 持久化时序
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Pool as ProxyPool
+    participant Proxy as Proxy
+    participant Scorer as ProxyScorer
+    participant Buf as PersistBuffer
+    participant Storage as RedisStorage
+
+    Client->>Pool: report_success(proxy, latency_ms)
+    Pool->>Pool: _sync_lock.acquire()
+    Pool->>Proxy: record_success(latency_ms)
+    Pool->>Scorer: update_after_check(proxy, True)
+    Pool->>Pool: _schedule_persist(proxy)
+
+    alt auto_persist && _persist_buffer
+        Pool->>Buf: mark_dirty(proxy)
+        alt pending >= batch_size 或有事件循环
+            Buf->>Buf: flush_async / flush_sync
+            Buf->>Storage: save_proxies_batch(batch)
+        end
+    else auto_persist && 无 buffer
+        Pool->>Storage: create_task save_proxy(proxy)
+    end
+```
+
+---
+
+## 23. Provider 子系统（类图 + 时序）
+
+### 23.1 类图
+
+```mermaid
+classDiagram
+    class BaseProvider {
+        <<abstract>>
+        +str name
+        +fetch_proxies()* list~Proxy~
+    }
+
+    class StaticListProvider {
+        -list~Proxy~ _proxies
+        +fetch_proxies() list~Proxy~
+    }
+
+    class HttpApiProvider {
+        +str url
+        +str method
+        +JsonFieldMapping field_mapping
+        +fetch_proxies() list~Proxy~
+        -_parse_json(payload) list~Proxy~
+    }
+
+    class JsonFieldMapping {
+        +str host
+        +str port
+        +str protocol
+        +str proxy
+    }
+
+    class parse_proxy_lines {
+        <<function>>
+    }
+
+    BaseProvider <|-- StaticListProvider
+    BaseProvider <|-- HttpApiProvider
+    HttpApiProvider --> JsonFieldMapping
+    HttpApiProvider ..> parse_proxy_lines
+    StaticListProvider ..> parse_proxy_lines
+```
+
+### 23.2 refresh_from_providers 时序
+
+```mermaid
+sequenceDiagram
+    participant Pool as ProxyPool
+    participant Provider as HttpApiProvider
+    participant HTTP as httpx.AsyncClient
+    participant State as merge_provider_fields
+
+    Pool->>Pool: async with _lock
+    loop 每个 provider
+        Pool->>Provider: fetch_proxies()
+        Provider->>HTTP: request(api_url)
+        HTTP-->>Provider: JSON / text
+        Provider->>Provider: _parse_json / parse_proxy_lines
+        Provider-->>Pool: list~Proxy~
+
+        loop 每个 proxy
+            Pool->>Pool: add_proxy(proxy)
+            alt key 不存在
+                Pool->>Pool: _proxies[key] = proxy
+            else key 已存在
+                Pool->>State: merge_provider_fields(existing, incoming)
+                Note over State: 保留 score/status/统计
+            end
+        end
+    end
+
+    Pool->>Pool: _maybe_persist()
+```
+
+---
+
+## 24. Scrapy 中间件（源码时序）
+
+**类：** `integrations.scrapy.ProxyForgeMiddleware`
+
+```mermaid
+sequenceDiagram
+    participant Scrapy as Scrapy Engine
+    participant MW as ProxyForgeMiddleware
+    participant Pool as ProxyPool
+    participant Site as 目标站
+
+    Scrapy->>MW: process_request(request)
+    alt 已有 LEASE_META_KEY
+        MW-->>Scrapy: return
+    end
+    MW->>Pool: acquire_lease(exclude_keys=tried)
+    Pool-->>MW: ProxyLease
+    MW->>MW: _bind_proxy(request, lease)
+    Note over MW: meta: proxy, lease, download_slot
+
+    Scrapy->>Site: download via proxy
+    Site-->>Scrapy: response
+
+    Scrapy->>MW: process_response(request, response)
+
+    alt status in retry_http_codes && retry_count < max
+        MW->>Pool: report_failure(proxy)
+        MW->>Pool: release_lease(lease)
+        MW->>MW: _retry_with_new_proxy(request)
+        Note over MW: copy request, tried+=key, retry_count++
+        MW-->>Scrapy: new_request (重调度)
+    else 正常完成
+        alt 200 <= status < 400
+            MW->>Pool: report_success(proxy, latency)
+        else
+            MW->>Pool: report_failure(proxy)
+        end
+        MW->>Pool: release_lease(lease)
+        MW-->>Scrapy: response
+    end
+
+    opt 网络异常 process_exception
+        MW->>Pool: report_failure + release 或 _retry_with_new_proxy
+    end
+```
+
+---
+
+## 25. httpx 客户端（源码时序）
+
+**类：** `integrations.httpx_client.ProxyForgeHttpxClient`
+
+```mermaid
+sequenceDiagram
+    participant App as 应用代码
+    participant Client as ProxyForgeHttpxClient
+    participant Pool as ProxyPool
+    participant HTTP as httpx.AsyncClient
+    participant Site as 目标站
+
+    App->>Client: request(method, url)
+
+    loop attempt in 0..max_retries
+        Client->>Pool: acquire_lease(exclude_keys=tried)
+        Pool-->>Client: ProxyLease
+
+        Client->>HTTP: request(url, proxy=lease.proxy.url)
+        alt HTTPError / OSError
+            HTTP-->>Client: exception
+            Client->>Pool: report_failure(proxy)
+            Client->>Pool: release_lease(lease)
+            Client->>Client: tried.add(key)
+        else 得到 response
+            HTTP-->>Client: response
+            alt status in retry_http_codes
+                Client->>Pool: report_failure(proxy)
+                Client->>Client: tried.add(key), continue
+            else 2xx/3xx
+                Client->>Pool: report_success(proxy, latency_ms)
+                Client-->>App: response
+            end
+            Client->>Pool: release_lease(lease)
+        end
+    end
+
+    alt 全部重试失败
+        Client-->>App: raise last_exc / HTTPError
+    end
+```
+
+**与 Scrapy 的差异：** httpx 客户端在**同一协程**内循环重试；Scrapy 通过返回 `new_request` 交给引擎重新调度。
+
+---
+
 *文档版本：与 ProxyForge v0.3.0 源码同步。*
+

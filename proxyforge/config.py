@@ -12,12 +12,13 @@ from typing import Any
 def _coerce_value(field_name: str, raw: str) -> Any:
     if field_name == "tags":
         return frozenset(p.strip() for p in raw.split(",") if p.strip())
-    if field_name in {"allow_unknown_proxies", "lease_enabled", "score_window_enabled", "persist_sync_fallback", "distributed_enabled", "distributed_sync_on_acquire"}:
+    if field_name in {"allow_unknown_proxies", "lease_enabled", "score_window_enabled", "persist_sync_fallback", "distributed_enabled", "distributed_sync_on_acquire", "rate_limit_enabled"}:
         return raw.lower() in {"1", "true", "yes", "on"}
     if field_name in {
         "max_consecutive_failures",
         "max_leases_per_proxy",
         "max_proxy_retries",
+        "max_concurrent_per_proxy",
         "health_check_concurrency",
         "health_check_batch_size",
         "score_window_max_events",
@@ -41,6 +42,7 @@ def _coerce_value(field_name: str, raw: str) -> Any:
         "success_rate_weight",
         "banned_cooldown_seconds",
         "lease_ttl_seconds",
+        "max_qps_per_proxy",
     }:
         return float(raw)
     return raw
@@ -81,6 +83,9 @@ class ProxyForgeConfig:
     distributed_enabled: bool = False
     distributed_sync_on_acquire: bool = True
     instance_id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
+    rate_limit_enabled: bool = False
+    max_qps_per_proxy: float = 5.0
+    max_concurrent_per_proxy: int = 2
     max_proxy_retries: int = 3
     retry_http_codes: frozenset[int] = field(
         default_factory=lambda: frozenset({403, 429, 502, 503, 504})
@@ -163,6 +168,9 @@ class ProxyForgeConfig:
             "distributed_enabled": self.distributed_enabled,
             "distributed_sync_on_acquire": self.distributed_sync_on_acquire,
             "instance_id": self.instance_id,
+            "rate_limit_enabled": self.rate_limit_enabled,
+            "max_qps_per_proxy": self.max_qps_per_proxy,
+            "max_concurrent_per_proxy": self.max_concurrent_per_proxy,
             "max_proxy_retries": self.max_proxy_retries,
             "retry_http_codes": sorted(self.retry_http_codes),
             "user_agent": self.user_agent,

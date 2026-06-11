@@ -19,6 +19,7 @@ class ProxyLease:
     proxy: Proxy
     created_at: float
     ttl_seconds: float
+    rate_slot_held: bool = False
 
     @property
     def is_expired(self) -> bool:

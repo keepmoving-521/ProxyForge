@@ -129,10 +129,20 @@ class RedisLeaseCoordinator:
         for proxy in candidates:
             if self.is_proxy_leased(proxy.key):
                 continue
+            if (
+                pool._rate_limiter is not None
+                and pool._rate_limiter.is_at_capacity(proxy.key)
+            ):
+                continue
             if sync_on_acquire:
                 self.sync_proxy_state(proxy)
             remote_lease = self.try_acquire(proxy)
-            if remote_lease is not None:
-                return pool._lease_manager.register(remote_lease)
+            if remote_lease is None:
+                continue
+            registered = pool._lease_manager.register(remote_lease)
+            lease = pool._apply_rate_limit_or_rollback(registered)
+            if lease is not None:
+                return lease
+            pool._rollback_lease(registered)
 
         raise ProxyNotAvailableError("No available proxy matching criteria")

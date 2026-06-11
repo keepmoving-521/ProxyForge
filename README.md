@@ -65,6 +65,9 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 | `distributed_enabled` | 启用 Redis 分布式租约（需 RedisStorage） | false |
 | `distributed_sync_on_acquire` | 获取租约前从 Redis 同步评分/状态 | true |
 | `instance_id` | 分布式实例标识（租约 owner） | 随机 12 位 hex |
+| `rate_limit_enabled` | 启用单 IP QPS / 并发限流 | false |
+| `max_qps_per_proxy` | 每 IP 每秒最大请求数 | 5 |
+| `max_concurrent_per_proxy` | 每 IP 最大并发连接数 | 2 |
 | `min_score` | 最低可用评分 | 20 |
 | `health_check_concurrency` | 健康检测并发数 | 20 |
 | `health_check_batch_size` | 分批检测每批大小 | 100 |
@@ -177,6 +180,20 @@ try:
     ...
 finally:
     pool.release_lease(lease)
+```
+
+## 单 IP 限流
+
+在租约之上限制每个 IP 的 QPS 与并发连接数，避免请求过快被封。`acquire_lease` 会自动跳过已达上限的 IP，并在 `release_lease` 时释放并发配额。
+
+```python
+config = ProxyForgeConfig(
+    lease_enabled=True,
+    rate_limit_enabled=True,
+    max_qps_per_proxy=5.0,       # 每秒最多 5 次
+    max_concurrent_per_proxy=2,  # 同时最多 2 个在途请求
+)
+pool = ProxyPool(config)
 ```
 
 ## Scrapy 集成

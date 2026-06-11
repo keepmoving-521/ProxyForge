@@ -8,15 +8,14 @@ import threading
 from typing import Iterable
 
 from proxyforge.config import ProxyForgeConfig
-from proxyforge.health import HealthChecker
-from proxyforge.health_urls import HealthCheckContext
+from proxyforge.exceptions import ProxyNotAvailableError
 from proxyforge.lease import LeaseManager, ProxyLease
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.providers.base import BaseProvider
 from proxyforge.rate_limit import RateLimiter
 from proxyforge.router import ProxyRouter
 from proxyforge.scheduling import LeaseAcquisitionService
-from proxyforge.scoring import ProxyScorer
+from proxyforge.services import HealthChecker, HealthCheckContext, ProxyScorer
 from proxyforge.state import merge_provider_fields, merge_runtime_state
 from proxyforge.storage.base import BaseStorage
 from proxyforge.storage.persist import PersistBuffer

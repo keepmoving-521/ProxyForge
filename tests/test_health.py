@@ -3,7 +3,6 @@
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
 
 from proxyforge.config import ProxyForgeConfig
@@ -141,7 +140,7 @@ async def test_check_all_uses_shared_client_and_batches():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("proxyforge.health.httpx.AsyncClient", return_value=mock_client):
+    with patch("proxyforge.services.health.httpx.AsyncClient", return_value=mock_client):
         summary = await checker.check_all(proxies)
 
     assert summary.checked == 1
@@ -167,7 +166,7 @@ async def test_check_all_force_checks_everything():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("proxyforge.health.httpx.AsyncClient", return_value=mock_client):
+    with patch("proxyforge.services.health.httpx.AsyncClient", return_value=mock_client):
         summary = await checker.check_all(proxies, force=True)
 
     assert summary.checked == 2

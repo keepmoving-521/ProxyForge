@@ -12,9 +12,19 @@ from proxyforge.models import Proxy, ProxyProtocol, ProxyStatus
 from proxyforge.pool import ProxyPool
 from proxyforge.router import ProxyRouter
 from proxyforge.scheduling import LeaseAcquisitionService
+from proxyforge.services import (
+    HealthCheckContext,
+    HealthCheckSummary,
+    HealthChecker,
+    ProxyScorer,
+    WindowStats,
+)
 from proxyforge.state import merge_provider_fields, merge_runtime_state
 
 __all__ = [
+    "HealthCheckContext",
+    "HealthCheckSummary",
+    "HealthChecker",
     "HealthCheckError",
     "LeaseAcquisitionService",
     "ProviderError",
@@ -26,7 +36,9 @@ __all__ = [
     "ProxyPool",
     "ProxyProtocol",
     "ProxyRouter",
+    "ProxyScorer",
     "ProxyStatus",
+    "WindowStats",
     "merge_provider_fields",
     "merge_runtime_state",
     "__version__",

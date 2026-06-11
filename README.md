@@ -272,14 +272,19 @@ proxyforge/
 │
 ├── scheduling/              # 调度层
 │   └── lease_acquisition.py # 租约获取编排（本地 + 分布式）
+├── services/                # 业务服务层
+│   ├── health.py            # 健康检测
+│   ├── health_urls.py       # 检测 URL 解析
+│   ├── scoring.py           # 动态评分
+│   └── score_window.py      # 滑动窗口统计
 ├── router.py                # 路由策略（best / weighted / round_robin）
 ├── lease.py                 # 租约模型与 LeaseManager
 ├── rate_limit.py            # 本地限流 + RateLimiter 协议
 │
-├── health.py                # 健康检测
-├── health_urls.py           # 检测 URL 解析
-├── scoring.py               # 动态评分
-├── score_window.py          # 滑动窗口统计
+├── health.py                # 兼容 re-export → services.health
+├── health_urls.py           # 兼容 re-export
+├── scoring.py               # 兼容 re-export
+├── score_window.py          # 兼容 re-export
 ├── serialization.py         # 持久化序列化
 │
 ├── providers/               # 代理来源
@@ -300,7 +305,7 @@ proxyforge/
     └── httpx_client.py
 ```
 
-**分层依赖：** `models` → `config` / `state` → `health` / `router` / `lease` / `rate_limit` / `storage` → `scheduling` → `pool` → `integrations`
+**分层依赖：** `models` → `config` / `state` → `services` / `router` / `lease` / `rate_limit` / `storage` → `scheduling` → `pool` → `integrations`
 
 **扩展点：**
 

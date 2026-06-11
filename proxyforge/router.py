@@ -21,10 +21,14 @@ class ProxyRouter:
         proxies: Iterable[Proxy],
         *,
         tags: frozenset[str] | None = None,
+        exclude_keys: frozenset[str] | None = None,
     ) -> list[Proxy]:
         required_tags = tags or self.config.tags
+        excluded = exclude_keys or frozenset()
         candidates: list[Proxy] = []
         for proxy in proxies:
+            if proxy.key in excluded:
+                continue
             if not proxy.is_available(
                 banned_cooldown_seconds=self.config.banned_cooldown_seconds,
                 allow_unknown=self.config.allow_unknown_proxies,
@@ -42,8 +46,9 @@ class ProxyRouter:
         proxies: Iterable[Proxy],
         *,
         tags: frozenset[str] | None = None,
+        exclude_keys: frozenset[str] | None = None,
     ) -> Proxy:
-        candidates = self.filter_available(proxies, tags=tags)
+        candidates = self.filter_available(proxies, tags=tags, exclude_keys=exclude_keys)
         if not candidates:
             raise ProxyNotAvailableError("No available proxy matching criteria")
         return max(candidates, key=lambda p: p.score)
@@ -53,8 +58,9 @@ class ProxyRouter:
         proxies: Iterable[Proxy],
         *,
         tags: frozenset[str] | None = None,
+        exclude_keys: frozenset[str] | None = None,
     ) -> Proxy:
-        candidates = self.filter_available(proxies, tags=tags)
+        candidates = self.filter_available(proxies, tags=tags, exclude_keys=exclude_keys)
         if not candidates:
             raise ProxyNotAvailableError("No available proxy matching criteria")
         weights = [max(p.score, 1.0) for p in candidates]
@@ -65,8 +71,9 @@ class ProxyRouter:
         proxies: Iterable[Proxy],
         *,
         tags: frozenset[str] | None = None,
+        exclude_keys: frozenset[str] | None = None,
     ) -> Proxy:
-        candidates = self.filter_available(proxies, tags=tags)
+        candidates = self.filter_available(proxies, tags=tags, exclude_keys=exclude_keys)
         if not candidates:
             raise ProxyNotAvailableError("No available proxy matching criteria")
         candidates.sort(key=lambda p: p.key)

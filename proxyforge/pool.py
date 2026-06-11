@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Iterable
 
 from proxyforge.config import ProxyForgeConfig
 from proxyforge.health import HealthChecker
+from proxyforge.lease import LeaseManager, ProxyLease
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.providers.base import BaseProvider
 from proxyforge.router import ProxyRouter
@@ -36,8 +38,13 @@ class ProxyPool:
         self._scorer = ProxyScorer(self.config)
         self._checker = HealthChecker(self.config, self._scorer)
         self._router = ProxyRouter(self.config)
+        self._lease_manager = LeaseManager(
+            ttl_seconds=self.config.lease_ttl_seconds,
+            max_per_proxy=self.config.max_leases_per_proxy,
+        )
         self._health_task: asyncio.Task | None = None
         self._lock = asyncio.Lock()
+        self._sync_lock = threading.Lock()
 
     @property
     def proxies(self) -> list[Proxy]:
@@ -50,6 +57,10 @@ class ProxyPool:
     @property
     def total_count(self) -> int:
         return len(self._proxies)
+
+    @property
+    def active_leases(self) -> int:
+        return self._lease_manager.active_count()
 
     def add_proxy(self, proxy: Proxy) -> None:
         existing = self._proxies.get(proxy.key)
@@ -159,30 +170,86 @@ class ProxyPool:
                 pass
             self._health_task = None
 
+    def _select_proxy(
+        self,
+        *,
+        strategy: str,
+        tags: frozenset[str] | None,
+        exclude_keys: frozenset[str] | None,
+    ) -> Proxy:
+        proxies = self._proxies.values()
+        leased = self._lease_manager.get_excluded_keys()
+        combined_exclude = leased
+        if exclude_keys:
+            combined_exclude = leased | exclude_keys
+
+        if strategy == "best":
+            return self._router.select_best(
+                proxies, tags=tags, exclude_keys=combined_exclude
+            )
+        if strategy == "round_robin":
+            return self._router.select_round_robin(
+                proxies, tags=tags, exclude_keys=combined_exclude
+            )
+        return self._router.select_weighted_random(
+            proxies, tags=tags, exclude_keys=combined_exclude
+        )
+
     def acquire(
         self,
         *,
         strategy: str = "weighted",
         tags: frozenset[str] | None = None,
+        exclude_keys: frozenset[str] | None = None,
     ) -> Proxy:
-        """获取一个可用代理。"""
-        proxies = self._proxies.values()
-        if strategy == "best":
-            return self._router.select_best(proxies, tags=tags)
-        if strategy == "round_robin":
-            return self._router.select_round_robin(proxies, tags=tags)
-        return self._router.select_weighted_random(proxies, tags=tags)
+        """获取一个可用代理（不创建租约）。"""
+        with self._sync_lock:
+            return self._select_proxy(
+                strategy=strategy, tags=tags, exclude_keys=exclude_keys
+            )
+
+    def acquire_lease(
+        self,
+        *,
+        strategy: str = "weighted",
+        tags: frozenset[str] | None = None,
+        exclude_keys: frozenset[str] | None = None,
+    ) -> ProxyLease:
+        """获取代理并创建租约，防止并发重复使用。"""
+        with self._sync_lock:
+            proxy = self._select_proxy(
+                strategy=strategy, tags=tags, exclude_keys=exclude_keys
+            )
+            if self.config.lease_enabled:
+                return self._lease_manager.create(proxy)
+            return ProxyLease(
+                lease_id="",
+                proxy=proxy,
+                created_at=0.0,
+                ttl_seconds=0.0,
+            )
+
+    def release_lease(self, lease: ProxyLease | str | None) -> None:
+        """释放代理租约。"""
+        if lease is None:
+            return
+        if isinstance(lease, ProxyLease) and not lease.lease_id:
+            return
+        with self._sync_lock:
+            self._lease_manager.release(lease)
 
     def report_success(self, proxy: Proxy, latency_ms: float) -> None:
-        proxy.record_success(latency_ms)
-        self._scorer.update_after_check(proxy, True)
+        with self._sync_lock:
+            proxy.record_success(latency_ms)
+            self._scorer.update_after_check(proxy, True)
         self._schedule_persist(proxy)
 
     def report_failure(self, proxy: Proxy) -> None:
-        proxy.record_failure(
-            max_consecutive_failures=self.config.max_consecutive_failures
-        )
-        self._scorer.update_after_check(proxy, False)
+        with self._sync_lock:
+            proxy.record_failure(
+                max_consecutive_failures=self.config.max_consecutive_failures
+            )
+            self._scorer.update_after_check(proxy, False)
         self._schedule_persist(proxy)
 
     def _schedule_persist(self, proxy: Proxy | None = None) -> None:
@@ -205,6 +272,7 @@ class ProxyPool:
         return {
             "total": self.total_count,
             "healthy": self.healthy_count,
+            "active_leases": self.active_leases,
             "by_status": by_status,
             "avg_score": sum(scores) / len(scores) if scores else 0.0,
         }

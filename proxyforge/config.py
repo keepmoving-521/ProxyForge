@@ -11,10 +11,12 @@ from typing import Any
 def _coerce_value(field_name: str, raw: str) -> Any:
     if field_name == "tags":
         return frozenset(p.strip() for p in raw.split(",") if p.strip())
-    if field_name == "allow_unknown_proxies":
+    if field_name in {"allow_unknown_proxies", "lease_enabled"}:
         return raw.lower() in {"1", "true", "yes", "on"}
-    if field_name == "max_consecutive_failures":
+    if field_name in {"max_consecutive_failures", "max_leases_per_proxy", "max_proxy_retries"}:
         return int(raw)
+    if field_name == "retry_http_codes":
+        return frozenset(int(code.strip()) for code in raw.split(",") if code.strip())
     if field_name in {
         "health_check_timeout",
         "health_check_interval",
@@ -24,6 +26,7 @@ def _coerce_value(field_name: str, raw: str) -> Any:
         "latency_weight",
         "success_rate_weight",
         "banned_cooldown_seconds",
+        "lease_ttl_seconds",
     }:
         return float(raw)
     return raw
@@ -44,7 +47,14 @@ class ProxyForgeConfig:
     success_rate_weight: float = 0.7
     banned_cooldown_seconds: float = 300.0
     allow_unknown_proxies: bool = True
-    user_agent: str = "ProxyForge/0.2.0"
+    lease_enabled: bool = True
+    lease_ttl_seconds: float = 60.0
+    max_leases_per_proxy: int = 1
+    max_proxy_retries: int = 3
+    retry_http_codes: frozenset[int] = field(
+        default_factory=lambda: frozenset({403, 429, 502, 503, 504})
+    )
+    user_agent: str = "ProxyForge/0.3.0"
     tags: frozenset[str] = field(default_factory=frozenset)
 
     @classmethod
@@ -55,6 +65,8 @@ class ProxyForgeConfig:
             if key not in valid:
                 continue
             if key == "tags" and value is not None:
+                kwargs[key] = frozenset(value)
+            elif key == "retry_http_codes" and value is not None:
                 kwargs[key] = frozenset(value)
             else:
                 kwargs[key] = value
@@ -98,6 +110,11 @@ class ProxyForgeConfig:
             "success_rate_weight": self.success_rate_weight,
             "banned_cooldown_seconds": self.banned_cooldown_seconds,
             "allow_unknown_proxies": self.allow_unknown_proxies,
+            "lease_enabled": self.lease_enabled,
+            "lease_ttl_seconds": self.lease_ttl_seconds,
+            "max_leases_per_proxy": self.max_leases_per_proxy,
+            "max_proxy_retries": self.max_proxy_retries,
+            "retry_http_codes": sorted(self.retry_http_codes),
             "user_agent": self.user_agent,
             "tags": sorted(self.tags),
         }

@@ -36,6 +36,10 @@ score_window_enabled: true
 score_window_seconds: 3600.0
 score_window_max_events: 500
 
+# 持久化 flush
+persist_batch_size: 10
+persist_sync_fallback: true
+
 user_agent: ProxyForge/0.3.0
 tags:
   - cn

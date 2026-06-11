@@ -11,7 +11,7 @@ from typing import Any
 def _coerce_value(field_name: str, raw: str) -> Any:
     if field_name == "tags":
         return frozenset(p.strip() for p in raw.split(",") if p.strip())
-    if field_name in {"allow_unknown_proxies", "lease_enabled", "score_window_enabled"}:
+    if field_name in {"allow_unknown_proxies", "lease_enabled", "score_window_enabled", "persist_sync_fallback"}:
         return raw.lower() in {"1", "true", "yes", "on"}
     if field_name in {
         "max_consecutive_failures",
@@ -20,6 +20,7 @@ def _coerce_value(field_name: str, raw: str) -> Any:
         "health_check_concurrency",
         "health_check_batch_size",
         "score_window_max_events",
+        "persist_batch_size",
     }:
         return int(raw)
     if field_name == "retry_http_codes":
@@ -66,6 +67,8 @@ class ProxyForgeConfig:
     score_window_enabled: bool = True
     score_window_seconds: float = 3600.0
     score_window_max_events: int = 500
+    persist_batch_size: int = 10
+    persist_sync_fallback: bool = True
     banned_cooldown_seconds: float = 300.0
     allow_unknown_proxies: bool = True
     lease_enabled: bool = True
@@ -138,6 +141,8 @@ class ProxyForgeConfig:
             "score_window_enabled": self.score_window_enabled,
             "score_window_seconds": self.score_window_seconds,
             "score_window_max_events": self.score_window_max_events,
+            "persist_batch_size": self.persist_batch_size,
+            "persist_sync_fallback": self.persist_sync_fallback,
             "banned_cooldown_seconds": self.banned_cooldown_seconds,
             "allow_unknown_proxies": self.allow_unknown_proxies,
             "lease_enabled": self.lease_enabled,

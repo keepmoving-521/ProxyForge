@@ -15,6 +15,7 @@ from proxyforge.providers.base import BaseProvider
 from proxyforge.router import ProxyRouter
 from proxyforge.scoring import ProxyScorer
 from proxyforge.storage.base import BaseStorage
+from proxyforge.storage.persist import PersistBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,13 @@ class ProxyPool:
         self._providers: list[BaseProvider] = list(providers or [])
         self._storage = storage
         self._auto_persist = auto_persist
+        self._persist_buffer: PersistBuffer | None = None
+        if storage is not None and auto_persist:
+            self._persist_buffer = PersistBuffer(
+                storage,
+                batch_size=self.config.persist_batch_size,
+                sync_fallback=self.config.persist_sync_fallback,
+            )
         self._scorer = ProxyScorer(self.config)
         self._checker = HealthChecker(self.config, self._scorer)
         self._router = ProxyRouter(self.config)
@@ -111,16 +119,39 @@ class ProxyPool:
         """将当前代理池持久化。"""
         if self._storage is None:
             return
-        await self._storage.save_all(self._proxies.values())
+        if self._persist_buffer is not None:
+            self._persist_buffer.mark_all(self._proxies.values())
+            await self._persist_buffer.flush_async()
+        else:
+            await self._storage.save_all(self._proxies.values())
         logger.debug("Persisted %d proxies to storage", self.total_count)
+
+    async def flush_persist(self) -> int:
+        """立即 flush 待持久化的脏数据。"""
+        if self._persist_buffer is None:
+            return 0
+        return await self._persist_buffer.flush_async()
+
+    def flush_persist_sync(self) -> int:
+        """同步 flush 待持久化的脏数据（适用于 Scrapy 等无事件循环场景）。"""
+        if self._persist_buffer is None:
+            return 0
+        return self._persist_buffer.flush_sync()
 
     async def _maybe_persist(self, proxy: Proxy | None = None) -> None:
         if not self._auto_persist or self._storage is None:
             return
+        if self._persist_buffer is None:
+            if proxy is not None:
+                await self._storage.save_proxy(proxy)
+            else:
+                await self.persist()
+            return
         if proxy is not None:
-            await self._storage.save_proxy(proxy)
+            self._persist_buffer.mark_dirty(proxy)
         else:
-            await self.persist()
+            self._persist_buffer.mark_all(self._proxies.values())
+        await self._persist_buffer.flush_async()
 
     async def refresh_from_providers(self) -> int:
         """从所有已注册服务商拉取并合并代理。"""
@@ -264,14 +295,21 @@ class ProxyPool:
     def _schedule_persist(self, proxy: Proxy | None = None) -> None:
         if not self._auto_persist or self._storage is None:
             return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
+        if self._persist_buffer is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            if proxy is not None:
+                loop.create_task(self._storage.save_proxy(proxy))
+            else:
+                loop.create_task(self.persist())
             return
+
         if proxy is not None:
-            loop.create_task(self._storage.save_proxy(proxy))
+            self._persist_buffer.mark_dirty(proxy)
         else:
-            loop.create_task(self.persist())
+            self._persist_buffer.mark_all(self._proxies.values())
 
     def stats(self) -> dict:
         by_status: dict[str, int] = {}

@@ -1,6 +1,6 @@
 """Phase 1 配置落地测试。"""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -134,8 +134,10 @@ def test_banned_at_serialization():
 @pytest.mark.asyncio
 async def test_report_failure_schedules_persist():
     storage = AsyncMock()
+    storage.supports_sync = MagicMock(return_value=False)
+    storage.save_proxies_batch = AsyncMock()
     pool = ProxyPool(
-        ProxyForgeConfig(max_consecutive_failures=2),
+        ProxyForgeConfig(max_consecutive_failures=2, persist_batch_size=1),
         storage=storage,
         auto_persist=True,
     )
@@ -145,7 +147,7 @@ async def test_report_failure_schedules_persist():
     pool.report_failure(proxy)
     await asyncio_pending_tasks()
 
-    storage.save_proxy.assert_awaited()
+    storage.save_proxies_batch.assert_awaited()
 
 
 async def asyncio_pending_tasks():

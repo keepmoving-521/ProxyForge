@@ -16,6 +16,10 @@ class BaseStorage(ABC):
         """保存单个代理状态。"""
 
     @abstractmethod
+    async def save_proxies_batch(self, proxies: Iterable[Proxy]) -> None:
+        """批量保存部分代理（不重建索引）。"""
+
+    @abstractmethod
     async def save_all(self, proxies: Iterable[Proxy]) -> None:
         """批量保存代理。"""
 
@@ -30,3 +34,13 @@ class BaseStorage(ABC):
     @abstractmethod
     async def clear(self) -> None:
         """清空存储。"""
+
+    def supports_sync(self) -> bool:
+        return False
+
+    def save_proxy_sync(self, proxy: Proxy) -> None:
+        raise NotImplementedError(f"{type(self).__name__} does not support sync persist")
+
+    def save_proxies_sync(self, proxies: Iterable[Proxy]) -> None:
+        for proxy in proxies:
+            self.save_proxy_sync(proxy)

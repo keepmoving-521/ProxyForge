@@ -60,6 +60,8 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 | `score_window_enabled` | 启用滑动窗口评分 | true |
 | `score_window_seconds` | 评分窗口时长（秒） | 3600 |
 | `score_window_max_events` | 窗口内最多保留事件数 | 500 |
+| `persist_batch_size` | 持久化批量 flush 大小 | 10 |
+| `persist_sync_fallback` | 无事件循环时使用同步 Redis | true |
 | `min_score` | 最低可用评分 | 20 |
 | `health_check_concurrency` | 健康检测并发数 | 20 |
 | `health_check_batch_size` | 分批检测每批大小 | 100 |

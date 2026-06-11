@@ -13,8 +13,10 @@ from proxyforge.storage.base import BaseStorage
 logger = logging.getLogger(__name__)
 
 try:
+    import redis
     import redis.asyncio as aioredis
 except ImportError:  # pragma: no cover - optional dependency
+    redis = None  # type: ignore[assignment]
     aioredis = None  # type: ignore[assignment]
 
 
@@ -27,8 +29,9 @@ class RedisStorage(BaseStorage):
         *,
         key_prefix: str = "proxyforge",
         client: aioredis.Redis | None = None,
+        sync_client: redis.Redis | None = None,
     ) -> None:
-        if aioredis is None:
+        if aioredis is None or redis is None:
             raise ImportError(
                 "redis package is required for RedisStorage. "
                 "Install with: pip install proxyforge[redis]"
@@ -36,7 +39,9 @@ class RedisStorage(BaseStorage):
         self.url = url
         self.key_prefix = key_prefix
         self._client = client
+        self._sync_client = sync_client
         self._owns_client = client is None
+        self._owns_sync_client = sync_client is None
 
     @property
     def _index_key(self) -> str:
@@ -50,26 +55,59 @@ class RedisStorage(BaseStorage):
             self._client = aioredis.from_url(self.url, decode_responses=True)
         return self._client
 
+    def _get_sync_client(self) -> redis.Redis:
+        if self._sync_client is None:
+            self._sync_client = redis.from_url(self.url, decode_responses=True)
+        return self._sync_client
+
     async def close(self) -> None:
         if self._client and self._owns_client:
             await self._client.aclose()
             self._client = None
+        if self._sync_client and self._owns_sync_client:
+            self._sync_client.close()
+            self._sync_client = None
+
+    def supports_sync(self) -> bool:
+        return True
+
+    def _encode_proxy(self, proxy: Proxy) -> str:
+        return json.dumps(proxy_to_dict(proxy), ensure_ascii=False)
 
     async def save_proxy(self, proxy: Proxy) -> None:
+        await self.save_proxies_batch([proxy])
+
+    async def save_proxies_batch(self, proxies: Iterable[Proxy]) -> None:
         client = await self._get_client()
-        payload = json.dumps(proxy_to_dict(proxy), ensure_ascii=False)
         pipe = client.pipeline()
-        pipe.set(self._proxy_key(proxy.key), payload)
-        pipe.sadd(self._index_key, proxy.key)
-        await pipe.execute()
+        has_items = False
+        for proxy in proxies:
+            has_items = True
+            pipe.set(self._proxy_key(proxy.key), self._encode_proxy(proxy))
+            pipe.sadd(self._index_key, proxy.key)
+        if has_items:
+            await pipe.execute()
+
+    def save_proxy_sync(self, proxy: Proxy) -> None:
+        self.save_proxies_sync([proxy])
+
+    def save_proxies_sync(self, proxies: Iterable[Proxy]) -> None:
+        client = self._get_sync_client()
+        pipe = client.pipeline()
+        has_items = False
+        for proxy in proxies:
+            has_items = True
+            pipe.set(self._proxy_key(proxy.key), self._encode_proxy(proxy))
+            pipe.sadd(self._index_key, proxy.key)
+        if has_items:
+            pipe.execute()
 
     async def save_all(self, proxies: Iterable[Proxy]) -> None:
         client = await self._get_client()
         pipe = client.pipeline()
         keys: list[str] = []
         for proxy in proxies:
-            payload = json.dumps(proxy_to_dict(proxy), ensure_ascii=False)
-            pipe.set(self._proxy_key(proxy.key), payload)
+            pipe.set(self._proxy_key(proxy.key), self._encode_proxy(proxy))
             keys.append(proxy.key)
         if keys:
             pipe.delete(self._index_key)

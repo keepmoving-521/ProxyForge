@@ -8,21 +8,20 @@ import threading
 from typing import Iterable
 
 from proxyforge.config import ProxyForgeConfig
-from proxyforge.exceptions import ProxyNotAvailableError
 from proxyforge.health import HealthChecker
 from proxyforge.health_urls import HealthCheckContext
 from proxyforge.lease import LeaseManager, ProxyLease
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.providers.base import BaseProvider
-from proxyforge.rate_limit import ProxyRateLimiter
+from proxyforge.rate_limit import RateLimiter
 from proxyforge.router import ProxyRouter
+from proxyforge.scheduling import LeaseAcquisitionService
 from proxyforge.scoring import ProxyScorer
+from proxyforge.state import merge_provider_fields, merge_runtime_state
 from proxyforge.storage.base import BaseStorage
 from proxyforge.storage.persist import PersistBuffer
-from proxyforge.rate_limit import ProxyRateLimiter, RateLimiter
-from proxyforge.storage.redis import RedisStorage
 from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
-from proxyforge.storage.redis_rate_limit import RedisRateLimiter
+from proxyforge.wiring import build_distributed_coordinator, build_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,8 @@ class ProxyPool:
         providers: Iterable[BaseProvider] | None = None,
         storage: BaseStorage | None = None,
         auto_persist: bool = False,
+        rate_limiter: RateLimiter | None = None,
+        distributed: RedisLeaseCoordinator | None = None,
     ) -> None:
         self.config = config or ProxyForgeConfig()
         self._proxies: dict[str, Proxy] = {}
@@ -57,33 +58,24 @@ class ProxyPool:
             ttl_seconds=self.config.lease_ttl_seconds,
             max_per_proxy=self.config.max_leases_per_proxy,
         )
-        self._distributed: RedisLeaseCoordinator | None = None
-        if (
-            self.config.distributed_enabled
-            and isinstance(storage, RedisStorage)
-        ):
-            self._distributed = RedisLeaseCoordinator(
-                storage,
-                ttl_seconds=self.config.lease_ttl_seconds,
-                max_per_proxy=self.config.max_leases_per_proxy,
-                instance_id=self.config.instance_id,
-            )
-        self._rate_limiter: RateLimiter | None = None
-        if self.config.rate_limit_enabled:
-            if self.config.distributed_enabled and isinstance(storage, RedisStorage):
-                self._rate_limiter = RedisRateLimiter(
-                    storage,
-                    max_qps=self.config.max_qps_per_proxy,
-                    max_concurrent=self.config.max_concurrent_per_proxy,
-                    concurrent_ttl_seconds=max(
-                        60, int(self.config.lease_ttl_seconds * 2)
-                    ),
-                )
-            else:
-                self._rate_limiter = ProxyRateLimiter(
-                    max_qps=self.config.max_qps_per_proxy,
-                    max_concurrent=self.config.max_concurrent_per_proxy,
-                )
+        self._distributed = (
+            distributed
+            if distributed is not None
+            else build_distributed_coordinator(self.config, storage)
+        )
+        self._rate_limiter = (
+            rate_limiter
+            if rate_limiter is not None
+            else build_rate_limiter(self.config, storage)
+        )
+        self._lease_service = LeaseAcquisitionService(
+            config=self.config,
+            lease_manager=self._lease_manager,
+            router=self._router,
+            get_proxies=lambda: self._proxies.values(),
+            rate_limiter=self._rate_limiter,
+            distributed=self._distributed,
+        )
         self._health_task: asyncio.Task | None = None
         self._health_check_context: HealthCheckContext | None = None
         self._lock = asyncio.Lock()
@@ -105,12 +97,20 @@ class ProxyPool:
     def active_leases(self) -> int:
         return self._lease_manager.active_count()
 
+    @property
+    def rate_limiter(self) -> RateLimiter | None:
+        return self._rate_limiter
+
+    @property
+    def distributed_coordinator(self) -> RedisLeaseCoordinator | None:
+        return self._distributed
+
     def add_proxy(self, proxy: Proxy) -> None:
         existing = self._proxies.get(proxy.key)
         if existing is None:
             self._proxies[proxy.key] = proxy
         else:
-            self._merge_proxy(existing, proxy)
+            merge_provider_fields(existing, proxy)
 
     def add_proxies(self, proxies: Iterable[Proxy]) -> int:
         added = 0
@@ -121,32 +121,9 @@ class ProxyPool:
         return added
 
     @staticmethod
-    def _merge_proxy(existing: Proxy, incoming: Proxy) -> None:
-        """合并 Provider 数据，保留运行时统计。"""
-        existing.host = incoming.host
-        existing.port = incoming.port
-        existing.protocol = incoming.protocol
-        existing.username = incoming.username
-        existing.password = incoming.password
-        existing.provider = incoming.provider
-        existing.tags = existing.tags | incoming.tags
-        existing.metadata = {**existing.metadata, **incoming.metadata}
-
-    @staticmethod
     def merge_runtime_state(local: Proxy, remote: Proxy) -> None:
-        """将 Redis 中的运行时统计合并到本地代理。"""
-        local.status = remote.status
-        local.score = remote.score
-        local.success_count = remote.success_count
-        local.failure_count = remote.failure_count
-        local.total_latency_ms = remote.total_latency_ms
-        local.last_check_at = remote.last_check_at
-        local.last_success_at = remote.last_success_at
-        local.consecutive_failures = remote.consecutive_failures
-        local.banned_at = remote.banned_at
-        local.unhealthy_at = remote.unhealthy_at
-        local.unhealthy_recheck_attempts = remote.unhealthy_recheck_attempts
-        local.recent_events = list(remote.recent_events)
+        """将持久化存储中的运行时统计合并到本地代理。"""
+        merge_runtime_state(local, remote)
 
     def remove_proxy(self, key: str) -> bool:
         return self._proxies.pop(key, None) is not None
@@ -327,52 +304,6 @@ class ProxyPool:
             proxies, tags=tags, exclude_keys=combined_exclude
         )
 
-    def _iter_lease_candidates(
-        self,
-        *,
-        strategy: str,
-        tags: frozenset[str] | None,
-        exclude_keys: frozenset[str] | None,
-    ) -> list[Proxy]:
-        leased = self._lease_manager.get_excluded_keys()
-        combined_exclude = leased
-        if exclude_keys:
-            combined_exclude = leased | exclude_keys
-        return self._router.iter_candidates(
-            self._proxies.values(),
-            strategy=strategy,
-            tags=tags,
-            exclude_keys=combined_exclude,
-        )
-
-    def _create_local_lease(self, proxy: Proxy) -> ProxyLease:
-        if self.config.lease_enabled:
-            return self._lease_manager.create(proxy)
-        return ProxyLease(
-            lease_id="",
-            proxy=proxy,
-            created_at=0.0,
-            ttl_seconds=0.0,
-        )
-
-    def _rollback_lease(self, lease: ProxyLease) -> None:
-        if lease.rate_slot_held and self._rate_limiter is not None:
-            self._rate_limiter.release(lease.proxy.key)
-            lease.rate_slot_held = False
-        if lease.lease_id:
-            self._lease_manager.release(lease)
-            if self._distributed is not None:
-                self._distributed.release_lease(lease)
-
-    def _apply_rate_limit_or_rollback(self, lease: ProxyLease) -> ProxyLease | None:
-        if self._rate_limiter is None:
-            return lease
-        if self._rate_limiter.try_acquire(lease.proxy.key):
-            lease.rate_slot_held = True
-            return lease
-        self._rollback_lease(lease)
-        return None
-
     def acquire(
         self,
         *,
@@ -395,30 +326,12 @@ class ProxyPool:
     ) -> ProxyLease:
         """获取代理并创建租约，防止并发重复使用。"""
         with self._sync_lock:
-            if self._distributed is not None and self.config.lease_enabled:
-                return self._distributed.acquire_lease(
-                    self,
-                    strategy=strategy,
-                    tags=tags,
-                    exclude_keys=exclude_keys,
-                    sync_on_acquire=self.config.distributed_sync_on_acquire,
-                )
-            for proxy in self._iter_lease_candidates(
-                strategy=strategy, tags=tags, exclude_keys=exclude_keys
-            ):
-                if (
-                    self._rate_limiter is not None
-                    and self._rate_limiter.is_at_capacity(proxy.key)
-                ):
-                    continue
-                try:
-                    lease = self._create_local_lease(proxy)
-                except ProxyNotAvailableError:
-                    continue
-                lease = self._apply_rate_limit_or_rollback(lease)
-                if lease is not None:
-                    return lease
-            raise ProxyNotAvailableError("No available proxy matching criteria")
+            return self._lease_service.acquire(
+                strategy=strategy,
+                tags=tags,
+                exclude_keys=exclude_keys,
+                sync_on_acquire=self.config.distributed_sync_on_acquire,
+            )
 
     def release_lease(self, lease: ProxyLease | str | None) -> None:
         """释放代理租约。"""
@@ -427,15 +340,13 @@ class ProxyPool:
         if isinstance(lease, ProxyLease) and not lease.lease_id and not lease.rate_slot_held:
             return
         with self._sync_lock:
-            if isinstance(lease, ProxyLease) and lease.rate_slot_held:
-                if self._rate_limiter is not None:
-                    self._rate_limiter.release(lease.proxy.key)
-                lease.rate_slot_held = False
-            if isinstance(lease, ProxyLease) and lease.lease_id:
-                self._lease_manager.release(lease)
-                if self._distributed is not None:
-                    self._distributed.release_lease(lease)
-            elif not isinstance(lease, ProxyLease):
+            if isinstance(lease, ProxyLease):
+                self._lease_service.release_rate_slot(lease)
+                if lease.lease_id:
+                    self._lease_manager.release(lease)
+                    if self._distributed is not None:
+                        self._distributed.release_lease(lease)
+            else:
                 self._lease_manager.release(lease)
 
     def report_success(self, proxy: Proxy, latency_ms: float) -> None:

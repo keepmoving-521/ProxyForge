@@ -1,19 +1,34 @@
 """ProxyForge - 轻量级、高可用的代理池管理与调度框架。"""
 
 from proxyforge.config import ProxyForgeConfig
+from proxyforge.exceptions import (
+    HealthCheckError,
+    ProviderError,
+    ProxyForgeError,
+    ProxyNotAvailableError,
+)
 from proxyforge.lease import ProxyLease
 from proxyforge.models import Proxy, ProxyProtocol, ProxyStatus
 from proxyforge.pool import ProxyPool
 from proxyforge.router import ProxyRouter
+from proxyforge.scheduling import LeaseAcquisitionService
+from proxyforge.state import merge_provider_fields, merge_runtime_state
 
 __all__ = [
+    "HealthCheckError",
+    "LeaseAcquisitionService",
+    "ProviderError",
     "Proxy",
-    "ProxyProtocol",
-    "ProxyStatus",
-    "ProxyLease",
-    "ProxyPool",
-    "ProxyRouter",
     "ProxyForgeConfig",
+    "ProxyForgeError",
+    "ProxyLease",
+    "ProxyNotAvailableError",
+    "ProxyPool",
+    "ProxyProtocol",
+    "ProxyRouter",
+    "ProxyStatus",
+    "merge_provider_fields",
+    "merge_runtime_state",
     "__version__",
 ]
 

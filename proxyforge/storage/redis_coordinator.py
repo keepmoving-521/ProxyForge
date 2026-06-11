@@ -7,9 +7,9 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
-from proxyforge.exceptions import ProxyNotAvailableError
 from proxyforge.lease import ProxyLease
 from proxyforge.models import Proxy
+from proxyforge.state import merge_runtime_state
 
 try:
     from redis.exceptions import ResponseError as RedisResponseError
@@ -17,7 +17,6 @@ except ImportError:  # pragma: no cover
     RedisResponseError = Exception
 
 if TYPE_CHECKING:
-    from proxyforge.pool import ProxyPool
     from proxyforge.storage.redis import RedisStorage
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,7 @@ end
 
 
 class RedisLeaseCoordinator:
-    """基于 Redis SETNX + TTL 的跨实例租约协调。"""
+    """基于 Redis SETNX + TTL 的跨实例租约协调（仅 Redis 操作，不含调度逻辑）。"""
 
     def __init__(
         self,
@@ -97,52 +96,8 @@ class RedisLeaseCoordinator:
         return False
 
     def sync_proxy_state(self, local: Proxy) -> bool:
-        from proxyforge.pool import ProxyPool
-
         remote = self._storage.load_proxy_sync(local.key)
         if remote is None:
             return False
-        ProxyPool.merge_runtime_state(local, remote)
+        merge_runtime_state(local, remote)
         return True
-
-    def acquire_lease(
-        self,
-        pool: ProxyPool,
-        *,
-        strategy: str = "weighted",
-        tags: frozenset[str] | None = None,
-        exclude_keys: frozenset[str] | None = None,
-        sync_on_acquire: bool = True,
-    ) -> ProxyLease:
-        local_excluded = pool._lease_manager.get_excluded_keys()
-        combined_exclude = local_excluded
-        if exclude_keys:
-            combined_exclude = local_excluded | exclude_keys
-
-        candidates = pool._router.iter_candidates(
-            pool._proxies.values(),
-            strategy=strategy,
-            tags=tags,
-            exclude_keys=combined_exclude,
-        )
-
-        for proxy in candidates:
-            if self.is_proxy_leased(proxy.key):
-                continue
-            if (
-                pool._rate_limiter is not None
-                and pool._rate_limiter.is_at_capacity(proxy.key)
-            ):
-                continue
-            if sync_on_acquire:
-                self.sync_proxy_state(proxy)
-            remote_lease = self.try_acquire(proxy)
-            if remote_lease is None:
-                continue
-            registered = pool._lease_manager.register(remote_lease)
-            lease = pool._apply_rate_limit_or_rollback(registered)
-            if lease is not None:
-                return lease
-            pool._rollback_lease(registered)
-
-        raise ProxyNotAvailableError("No available proxy matching criteria")

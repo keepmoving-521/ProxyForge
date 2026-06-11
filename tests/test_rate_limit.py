@@ -101,7 +101,7 @@ def test_rate_limit_disabled_by_default():
         ProxyForgeConfig(lease_enabled=False, rate_limit_enabled=False, min_score=0.0)
     )
     pool.add_proxy(proxy)
-    assert pool._rate_limiter is None
+    assert pool.rate_limiter is None
 
     for _ in range(5):
         lease = pool.acquire_lease(strategy="best")

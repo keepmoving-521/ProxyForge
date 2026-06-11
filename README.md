@@ -261,30 +261,55 @@ proxyforge stats 127.0.0.1:7890
 
 ```
 proxyforge/
-├── models.py           # 代理数据模型
-├── pool.py             # 代理池核心
-├── health.py           # 健康检测
-├── scoring.py          # 动态评分
-├── router.py           # 智能路由
-├── lease.py            # 代理租约
-├── storage/
-│   ├── redis.py        # Redis 持久化
-│   ├── redis_coordinator.py  # 分布式租约协调
-│   └── redis_rate_limit.py   # 分布式限流
-├── serialization.py    # 序列化
-├── config.py           # 配置
-├── providers/          # 服务商接入
+├── __init__.py              # 公共 API 导出
+├── config.py                # 配置（env / YAML / dict）
+├── exceptions.py            # 异常层次
+├── models.py                # Proxy 数据模型
+├── state.py                 # 代理状态合并（Provider / 运行时）
+├── wiring.py                # 组件装配（分布式协调器、限流器）
+├── pool.py                  # ProxyPool 编排入口
+├── cli.py                   # 命令行工具
+│
+├── scheduling/              # 调度层
+│   └── lease_acquisition.py # 租约获取编排（本地 + 分布式）
+├── router.py                # 路由策略（best / weighted / round_robin）
+├── lease.py                 # 租约模型与 LeaseManager
+├── rate_limit.py            # 本地限流 + RateLimiter 协议
+│
+├── health.py                # 健康检测
+├── health_urls.py           # 检测 URL 解析
+├── scoring.py               # 动态评分
+├── score_window.py          # 滑动窗口统计
+├── serialization.py         # 持久化序列化
+│
+├── providers/               # 代理来源
 │   ├── base.py
 │   ├── static.py
 │   └── http_api.py
-├── storage/            # 持久化
+│
+├── storage/                 # 持久化与分布式协调
 │   ├── base.py
-│   └── redis.py
-└── integrations/       # 框架集成
+│   ├── persist.py           # 批量 flush 缓冲
+│   ├── redis.py             # Redis 存储
+│   ├── redis_coordinator.py # 分布式租约（SETNX + TTL）
+│   └── redis_rate_limit.py  # 分布式限流（滑动窗口 QPS）
+│
+└── integrations/            # 框架集成
     ├── scrapy.py
     ├── aiohttp.py
     └── httpx_client.py
 ```
+
+**分层依赖：** `models` → `config` / `state` → `health` / `router` / `lease` / `rate_limit` / `storage` → `scheduling` → `pool` → `integrations`
+
+**扩展点：**
+
+| 需求 | 扩展方式 |
+|------|----------|
+| 新代理来源 | 继承 `BaseProvider` |
+| 新存储后端 | 继承 `BaseStorage` |
+| 自定义限流 / 分布式 | 构造 `ProxyPool` 时注入 `rate_limiter` / `distributed` |
+| 新 HTTP 框架 | 参考 `integrations/httpx_client.py` 的 acquire → request → release 模式 |
 
 ## 开发
 

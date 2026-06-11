@@ -186,14 +186,18 @@ finally:
 
 在租约之上限制每个 IP 的 QPS 与并发连接数，避免请求过快被封。`acquire_lease` 会自动跳过已达上限的 IP，并在 `release_lease` 时释放并发配额。
 
+单机部署使用进程内计数；**启用 `distributed_enabled` 且配置 `RedisStorage` 时**，限流自动切换为 Redis 滑动窗口（QPS）+ 全局并发计数，与分布式租约共用 `{prefix}:drqps:*` / `{prefix}:drconc:*` 键前缀。
+
 ```python
 config = ProxyForgeConfig(
     lease_enabled=True,
     rate_limit_enabled=True,
-    max_qps_per_proxy=5.0,       # 每秒最多 5 次
-    max_concurrent_per_proxy=2,  # 同时最多 2 个在途请求
+    distributed_enabled=True,      # 多机时启用 Redis 全局限流
+    max_qps_per_proxy=5.0,         # 每秒最多 5 次（全局）
+    max_concurrent_per_proxy=2,    # 同时最多 2 个在途请求（全局）
 )
-pool = ProxyPool(config)
+storage = RedisStorage(url="redis://localhost:6379/0")
+pool = ProxyPool(config, storage=storage)
 ```
 
 ## Scrapy 集成
@@ -265,7 +269,8 @@ proxyforge/
 ├── lease.py            # 代理租约
 ├── storage/
 │   ├── redis.py        # Redis 持久化
-│   └── redis_coordinator.py  # 分布式租约协调
+│   ├── redis_coordinator.py  # 分布式租约协调
+│   └── redis_rate_limit.py   # 分布式限流
 ├── serialization.py    # 序列化
 ├── config.py           # 配置
 ├── providers/          # 服务商接入

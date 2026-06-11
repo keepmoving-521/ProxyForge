@@ -19,8 +19,10 @@ from proxyforge.router import ProxyRouter
 from proxyforge.scoring import ProxyScorer
 from proxyforge.storage.base import BaseStorage
 from proxyforge.storage.persist import PersistBuffer
+from proxyforge.rate_limit import ProxyRateLimiter, RateLimiter
 from proxyforge.storage.redis import RedisStorage
 from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
+from proxyforge.storage.redis_rate_limit import RedisRateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -66,12 +68,22 @@ class ProxyPool:
                 max_per_proxy=self.config.max_leases_per_proxy,
                 instance_id=self.config.instance_id,
             )
-        self._rate_limiter: ProxyRateLimiter | None = None
+        self._rate_limiter: RateLimiter | None = None
         if self.config.rate_limit_enabled:
-            self._rate_limiter = ProxyRateLimiter(
-                max_qps=self.config.max_qps_per_proxy,
-                max_concurrent=self.config.max_concurrent_per_proxy,
-            )
+            if self.config.distributed_enabled and isinstance(storage, RedisStorage):
+                self._rate_limiter = RedisRateLimiter(
+                    storage,
+                    max_qps=self.config.max_qps_per_proxy,
+                    max_concurrent=self.config.max_concurrent_per_proxy,
+                    concurrent_ttl_seconds=max(
+                        60, int(self.config.lease_ttl_seconds * 2)
+                    ),
+                )
+            else:
+                self._rate_limiter = ProxyRateLimiter(
+                    max_qps=self.config.max_qps_per_proxy,
+                    max_concurrent=self.config.max_concurrent_per_proxy,
+                )
         self._health_task: asyncio.Task | None = None
         self._health_check_context: HealthCheckContext | None = None
         self._lock = asyncio.Lock()

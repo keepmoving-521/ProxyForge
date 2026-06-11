@@ -4,6 +4,21 @@ from __future__ import annotations
 
 import threading
 import time
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class RateLimiter(Protocol):
+    """限流器统一接口（本地内存 / Redis 分布式）。"""
+
+    @property
+    def enabled(self) -> bool: ...
+
+    def is_at_capacity(self, proxy_key: str) -> bool: ...
+
+    def try_acquire(self, proxy_key: str) -> bool: ...
+
+    def release(self, proxy_key: str) -> None: ...
 
 
 class ProxyRateLimiter:

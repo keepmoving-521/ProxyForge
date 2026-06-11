@@ -24,7 +24,7 @@ async def test_aiohttp_client_injects_proxy_and_reports():
     mock_session.request = AsyncMock(return_value=mock_response)
     mock_session.close = AsyncMock()
 
-    client = ProxyForgeClient(pool, session=mock_session)
+    client = ProxyForgeClient(pool, max_retries=0, session=mock_session)
     async with client:
         response = await client.get("http://example.com")
 
@@ -45,7 +45,7 @@ async def test_aiohttp_client_reports_failure_on_exception():
     mock_session.request = AsyncMock(side_effect=aiohttp.ClientError("network"))
     mock_session.close = AsyncMock()
 
-    client = ProxyForgeClient(pool, session=mock_session)
+    client = ProxyForgeClient(pool, max_retries=0, session=mock_session)
     async with client:
         with pytest.raises(aiohttp.ClientError):
             await client.get("http://example.com")

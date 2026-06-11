@@ -7,7 +7,7 @@ import time
 from types import TracebackType
 from typing import Any
 
-from proxyforge.models import Proxy
+from proxyforge.lease import ProxyLease
 from proxyforge.pool import ProxyPool
 
 logger = logging.getLogger(__name__)
@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 class ProxyForgeClient:
-    """aiohttp 封装：自动注入代理并上报使用结果。"""
+    """aiohttp 封装：自动注入代理租约并上报使用结果。"""
 
     def __init__(
         self,
@@ -27,6 +27,8 @@ class ProxyForgeClient:
         *,
         strategy: str = "weighted",
         tags: frozenset[str] | None = None,
+        max_retries: int | None = None,
+        retry_http_codes: frozenset[int] | None = None,
         session: aiohttp.ClientSession | None = None,
         **session_kwargs: Any,
     ) -> None:
@@ -38,6 +40,14 @@ class ProxyForgeClient:
         self.pool = pool
         self.strategy = strategy
         self.tags = tags
+        self.max_retries = (
+            max_retries if max_retries is not None else pool.config.max_proxy_retries
+        )
+        self.retry_http_codes = (
+            retry_http_codes
+            if retry_http_codes is not None
+            else pool.config.retry_http_codes
+        )
         self._external_session = session
         self._session = session
         self._session_kwargs = session_kwargs
@@ -66,20 +76,51 @@ class ProxyForgeClient:
         return self._session
 
     async def request(self, method: str, url: str, **kwargs: Any) -> aiohttp.ClientResponse:
-        proxy_obj = self.pool.acquire(strategy=self.strategy, tags=self.tags)
-        kwargs.setdefault("proxy", proxy_obj.url)
-        start = time.perf_counter()
-        try:
-            response = await self.session.request(method, url, **kwargs)
-            latency_ms = (time.perf_counter() - start) * 1000
-            if 200 <= response.status < 400:
-                self.pool.report_success(proxy_obj, latency_ms)
-            else:
-                self.pool.report_failure(proxy_obj)
-            return response
-        except Exception:
-            self.pool.report_failure(proxy_obj)
-            raise
+        tried: set[str] = set()
+        last_exc: Exception | None = None
+
+        for attempt in range(self.max_retries + 1):
+            lease: ProxyLease | None = None
+            try:
+                lease = self.pool.acquire_lease(
+                    strategy=self.strategy,
+                    tags=self.tags,
+                    exclude_keys=frozenset(tried),
+                )
+                kwargs["proxy"] = lease.proxy.url
+                start = time.perf_counter()
+                response = await self.session.request(method, url, **kwargs)
+                latency_ms = (time.perf_counter() - start) * 1000
+
+                if response.status in self.retry_http_codes:
+                    if attempt < self.max_retries:
+                        tried.add(lease.proxy.key)
+                        self.pool.report_failure(lease.proxy)
+                        response.release()
+                        continue
+                    self.pool.report_failure(lease.proxy)
+                    return response
+
+                if 200 <= response.status < 400:
+                    self.pool.report_success(lease.proxy, latency_ms)
+                else:
+                    self.pool.report_failure(lease.proxy)
+                return response
+
+            except Exception as exc:
+                last_exc = exc
+                if lease is not None:
+                    tried.add(lease.proxy.key)
+                    self.pool.report_failure(lease.proxy)
+                if attempt >= self.max_retries:
+                    raise
+            finally:
+                if lease is not None:
+                    self.pool.release_lease(lease)
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("Request failed without exception")
 
     async def get(self, url: str, **kwargs: Any) -> aiohttp.ClientResponse:
         return await self.request("GET", url, **kwargs)

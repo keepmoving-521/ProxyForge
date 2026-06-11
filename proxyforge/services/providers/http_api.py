@@ -11,8 +11,8 @@ import httpx
 
 from proxyforge.exceptions import ProviderError
 from proxyforge.models import Proxy, ProxyProtocol
-from proxyforge.providers.base import BaseProvider
-from proxyforge.providers.static import parse_proxy_lines
+from proxyforge.services.providers.base import BaseProvider
+from proxyforge.services.providers.static import parse_proxy_lines
 
 logger = logging.getLogger(__name__)
 

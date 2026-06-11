@@ -5,7 +5,7 @@ import asyncio
 from proxyforge import ProxyPool
 from proxyforge.integrations.aiohttp import ProxyForgeClient
 from proxyforge.models import Proxy, ProxyStatus
-from proxyforge.providers.static import StaticListProvider
+from proxyforge.services.providers.static import StaticListProvider
 
 
 async def main() -> None:

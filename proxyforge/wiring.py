@@ -8,9 +8,9 @@ from proxyforge.config import ProxyForgeConfig
 from proxyforge.rate_limit import ProxyRateLimiter, RateLimiter
 
 if TYPE_CHECKING:
-    from proxyforge.storage.base import BaseStorage
-    from proxyforge.storage.redis import RedisStorage
-    from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
+    from proxyforge.services.storage.base import BaseStorage
+    from proxyforge.services.storage.redis import RedisStorage
+    from proxyforge.services.storage.redis_coordinator import RedisLeaseCoordinator
 
 
 def build_distributed_coordinator(
@@ -19,8 +19,8 @@ def build_distributed_coordinator(
 ) -> RedisLeaseCoordinator | None:
     if not config.distributed_enabled or storage is None:
         return None
-    from proxyforge.storage.redis import RedisStorage
-    from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
+    from proxyforge.services.storage.redis import RedisStorage
+    from proxyforge.services.storage.redis_coordinator import RedisLeaseCoordinator
 
     if not isinstance(storage, RedisStorage):
         return None
@@ -39,8 +39,8 @@ def build_rate_limiter(
     if not config.rate_limit_enabled:
         return None
     if config.distributed_enabled and storage is not None:
-        from proxyforge.storage.redis import RedisStorage
-        from proxyforge.storage.redis_rate_limit import RedisRateLimiter
+        from proxyforge.services.storage.redis import RedisStorage
+        from proxyforge.services.storage.redis_rate_limit import RedisRateLimiter
 
         if isinstance(storage, RedisStorage):
             return RedisRateLimiter(

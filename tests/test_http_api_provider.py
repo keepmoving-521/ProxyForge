@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from proxyforge.exceptions import ProviderError
-from proxyforge.providers.http_api import HttpApiProvider, JsonFieldMapping
+from proxyforge.services.providers.http_api import HttpApiProvider, JsonFieldMapping
 
 
 @pytest.mark.asyncio
@@ -29,7 +29,7 @@ async def test_http_api_json_list():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("proxyforge.providers.http_api.httpx.AsyncClient", return_value=mock_client):
+    with patch("proxyforge.services.providers.http_api.httpx.AsyncClient", return_value=mock_client):
         proxies = await provider.fetch_proxies()
 
     assert len(proxies) == 2
@@ -54,7 +54,7 @@ async def test_http_api_json_with_items_path():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("proxyforge.providers.http_api.httpx.AsyncClient", return_value=mock_client):
+    with patch("proxyforge.services.providers.http_api.httpx.AsyncClient", return_value=mock_client):
         proxies = await provider.fetch_proxies()
 
     assert len(proxies) == 2
@@ -77,7 +77,7 @@ async def test_http_api_text_response():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("proxyforge.providers.http_api.httpx.AsyncClient", return_value=mock_client):
+    with patch("proxyforge.services.providers.http_api.httpx.AsyncClient", return_value=mock_client):
         proxies = await provider.fetch_proxies()
 
     assert len(proxies) == 2
@@ -92,6 +92,6 @@ async def test_http_api_request_failure():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("proxyforge.providers.http_api.httpx.AsyncClient", return_value=mock_client):
+    with patch("proxyforge.services.providers.http_api.httpx.AsyncClient", return_value=mock_client):
         with pytest.raises(ProviderError):
             await provider.fetch_proxies()

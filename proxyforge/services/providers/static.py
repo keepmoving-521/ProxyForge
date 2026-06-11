@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from proxyforge.models import Proxy, ProxyProtocol
-from proxyforge.providers.base import BaseProvider
+from proxyforge.services.providers.base import BaseProvider
 
 
 class StaticListProvider(BaseProvider):

@@ -108,7 +108,7 @@ proxy.metadata["health_check_url"] = "https://target.com/ping"
 ```python
 import asyncio
 from proxyforge import ProxyForgeConfig, ProxyPool
-from proxyforge.providers.static import StaticListProvider
+from proxyforge.services.providers.static import StaticListProvider
 
 async def main():
     config = ProxyForgeConfig(health_check_url="http://httpbin.org/ip")
@@ -128,7 +128,7 @@ asyncio.run(main())
 
 ```python
 from proxyforge import ProxyPool
-from proxyforge.providers.http_api import HttpApiProvider, JsonFieldMapping
+from proxyforge.services.providers.http_api import HttpApiProvider, JsonFieldMapping
 
 provider = HttpApiProvider(
     "https://vendor.example.com/api/proxies",
@@ -147,7 +147,7 @@ await pool.refresh_from_providers()
 
 ```python
 from proxyforge import ProxyPool
-from proxyforge.storage.redis import RedisStorage
+from proxyforge.services.storage.redis import RedisStorage
 
 storage = RedisStorage(url="redis://localhost:6379/0")
 pool = ProxyPool(storage=storage, auto_persist=True)
@@ -164,7 +164,7 @@ await storage.close()
 
 ```python
 from proxyforge import ProxyForgeConfig, ProxyPool
-from proxyforge.storage.redis import RedisStorage
+from proxyforge.services.storage.redis import RedisStorage
 
 config = ProxyForgeConfig(
     lease_enabled=True,
@@ -276,23 +276,21 @@ proxyforge/
 │   ├── health.py            # 健康检测
 │   ├── health_urls.py       # 检测 URL 解析
 │   ├── scoring.py           # 动态评分
-│   └── score_window.py      # 滑动窗口统计
+│   ├── score_window.py      # 滑动窗口统计
+│   ├── providers/           # 代理来源
+│   │   ├── base.py
+│   │   ├── static.py
+│   │   └── http_api.py
+│   └── storage/             # 持久化与分布式协调
+│       ├── base.py
+│       ├── persist.py       # 批量 flush 缓冲
+│       ├── redis.py         # Redis 存储
+│       ├── redis_coordinator.py
+│       └── redis_rate_limit.py
 ├── router.py                # 路由策略（best / weighted / round_robin）
 ├── lease.py                 # 租约模型与 LeaseManager
 ├── rate_limit.py            # 本地限流 + RateLimiter 协议
 ├── serialization.py         # 持久化序列化
-│
-├── providers/               # 代理来源
-│   ├── base.py
-│   ├── static.py
-│   └── http_api.py
-│
-├── storage/                 # 持久化与分布式协调
-│   ├── base.py
-│   ├── persist.py           # 批量 flush 缓冲
-│   ├── redis.py             # Redis 存储
-│   ├── redis_coordinator.py # 分布式租约（SETNX + TTL）
-│   └── redis_rate_limit.py  # 分布式限流（滑动窗口 QPS）
 │
 └── integrations/            # 框架集成
     ├── scrapy.py
@@ -300,14 +298,14 @@ proxyforge/
     └── httpx_client.py
 ```
 
-**分层依赖：** `models` → `config` / `state` → `services` / `router` / `lease` / `rate_limit` / `storage` → `scheduling` → `pool` → `integrations`
+**分层依赖：** `models` → `config` / `state` → `services` / `router` / `lease` / `rate_limit` → `scheduling` → `pool` → `integrations`
 
 **扩展点：**
 
 | 需求 | 扩展方式 |
 |------|----------|
-| 新代理来源 | 继承 `BaseProvider` |
-| 新存储后端 | 继承 `BaseStorage` |
+| 新代理来源 | 继承 `services.providers.BaseProvider` |
+| 新存储后端 | 继承 `services.storage.BaseStorage` |
 | 自定义限流 / 分布式 | 构造 `ProxyPool` 时注入 `rate_limiter` / `distributed` |
 | 新 HTTP 框架 | 参考 `integrations/httpx_client.py` 的 acquire → request → release 模式 |
 

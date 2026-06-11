@@ -11,15 +11,15 @@ from proxyforge.config import ProxyForgeConfig
 from proxyforge.exceptions import ProxyNotAvailableError
 from proxyforge.lease import LeaseManager, ProxyLease
 from proxyforge.models import Proxy, ProxyStatus
-from proxyforge.providers.base import BaseProvider
+from proxyforge.services.providers.base import BaseProvider
 from proxyforge.rate_limit import RateLimiter
 from proxyforge.router import ProxyRouter
 from proxyforge.scheduling import LeaseAcquisitionService
 from proxyforge.services import HealthChecker, HealthCheckContext, ProxyScorer
+from proxyforge.services.storage.base import BaseStorage
+from proxyforge.services.storage.persist import PersistBuffer
+from proxyforge.services.storage.redis_coordinator import RedisLeaseCoordinator
 from proxyforge.state import merge_provider_fields, merge_runtime_state
-from proxyforge.storage.base import BaseStorage
-from proxyforge.storage.persist import PersistBuffer
-from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
 from proxyforge.wiring import build_distributed_coordinator, build_rate_limiter
 
 logger = logging.getLogger(__name__)

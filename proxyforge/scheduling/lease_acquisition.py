@@ -13,7 +13,7 @@ from proxyforge.rate_limit import RateLimiter
 from proxyforge.router import ProxyRouter
 
 if TYPE_CHECKING:
-    from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
+    from proxyforge.services.storage.redis_coordinator import RedisLeaseCoordinator
 
 
 class LeaseAcquisitionService:

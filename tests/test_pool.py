@@ -4,7 +4,7 @@ import pytest
 
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.pool import ProxyPool
-from proxyforge.providers.static import StaticListProvider
+from proxyforge.services.providers.static import StaticListProvider
 
 
 @pytest.mark.asyncio

@@ -10,7 +10,7 @@ import sys
 
 from proxyforge.config import ProxyForgeConfig
 from proxyforge.pool import ProxyPool
-from proxyforge.providers.static import StaticListProvider
+from proxyforge.services.providers.static import StaticListProvider
 
 
 def _build_parser() -> argparse.ArgumentParser:

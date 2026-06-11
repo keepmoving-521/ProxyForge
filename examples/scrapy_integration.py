@@ -14,7 +14,7 @@ import asyncio
 
 from proxyforge import ProxyPool
 from proxyforge.models import Proxy, ProxyStatus
-from proxyforge.providers.static import StaticListProvider
+from proxyforge.services.providers.static import StaticListProvider
 
 
 def build_pool() -> ProxyPool:

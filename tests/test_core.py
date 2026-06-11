@@ -4,7 +4,7 @@ import pytest
 
 from proxyforge.config import ProxyForgeConfig
 from proxyforge.models import Proxy, ProxyProtocol, ProxyStatus
-from proxyforge.providers.static import StaticListProvider, parse_proxy_lines
+from proxyforge.services.providers.static import StaticListProvider, parse_proxy_lines
 from proxyforge.router import ProxyRouter
 from proxyforge.services import ProxyScorer
 

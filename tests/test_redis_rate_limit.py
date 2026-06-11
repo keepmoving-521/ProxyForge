@@ -7,7 +7,7 @@ import pytest
 from proxyforge.exceptions import ProxyNotAvailableError
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.rate_limit import ProxyRateLimiter
-from proxyforge.storage.redis_rate_limit import RedisRateLimiter
+from proxyforge.services.storage.redis_rate_limit import RedisRateLimiter
 from conftest import make_distributed_pool, make_pool
 
 

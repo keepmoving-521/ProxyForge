@@ -8,7 +8,7 @@ from typing import Iterable
 
 from proxyforge.models import Proxy
 from proxyforge.serialization import proxy_from_dict, proxy_to_dict
-from proxyforge.storage.base import BaseStorage
+from proxyforge.services.storage.base import BaseStorage
 
 logger = logging.getLogger(__name__)
 

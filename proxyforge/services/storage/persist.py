@@ -8,7 +8,7 @@ import threading
 from typing import Iterable
 
 from proxyforge.models import Proxy
-from proxyforge.storage.base import BaseStorage
+from proxyforge.services.storage.base import BaseStorage
 
 logger = logging.getLogger(__name__)
 

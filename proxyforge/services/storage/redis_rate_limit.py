@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
     RedisResponseError = Exception
 
 if TYPE_CHECKING:
-    from proxyforge.storage.redis import RedisStorage
+    from proxyforge.services.storage.redis import RedisStorage
 
 logger = logging.getLogger(__name__)
 

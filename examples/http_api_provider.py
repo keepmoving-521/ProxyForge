@@ -3,7 +3,7 @@
 import asyncio
 
 from proxyforge import ProxyPool
-from proxyforge.providers.http_api import HttpApiProvider, JsonFieldMapping
+from proxyforge.services.providers.http_api import HttpApiProvider, JsonFieldMapping
 
 
 async def main() -> None:

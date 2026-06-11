@@ -5,7 +5,7 @@ import pytest
 from proxyforge.exceptions import ProxyNotAvailableError
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.state import merge_runtime_state
-from proxyforge.storage.redis_coordinator import RedisLeaseCoordinator
+from proxyforge.services.storage.redis_coordinator import RedisLeaseCoordinator
 from conftest import make_distributed_pool
 
 

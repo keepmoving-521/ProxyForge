@@ -5,7 +5,7 @@ import pytest
 from proxyforge.config import ProxyForgeConfig
 from proxyforge.models import Proxy
 from proxyforge.pool import ProxyPool
-from proxyforge.storage.redis import RedisStorage
+from proxyforge.services.storage.redis import RedisStorage
 
 
 @pytest.fixture

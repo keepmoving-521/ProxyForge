@@ -10,8 +10,8 @@ fakeredis = pytest.importorskip("fakeredis")
 from proxyforge.config import ProxyForgeConfig
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.pool import ProxyPool
-from proxyforge.storage.persist import PersistBuffer
-from proxyforge.storage.redis import RedisStorage
+from proxyforge.services.storage.persist import PersistBuffer
+from proxyforge.services.storage.redis import RedisStorage
 
 
 def test_persist_buffer_sync_fallback_without_event_loop():

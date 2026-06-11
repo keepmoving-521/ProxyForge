@@ -4,7 +4,7 @@ import asyncio
 
 from proxyforge import ProxyForgeConfig, ProxyPool
 from proxyforge.models import Proxy, ProxyStatus
-from proxyforge.storage.redis import RedisStorage
+from proxyforge.services.storage.redis import RedisStorage
 
 
 async def main() -> None:

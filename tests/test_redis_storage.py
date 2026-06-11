@@ -7,7 +7,7 @@ import pytest
 fakeredis = pytest.importorskip("fakeredis")
 
 from proxyforge.models import Proxy, ProxyStatus
-from proxyforge.storage.redis import RedisStorage
+from proxyforge.services.storage.redis import RedisStorage
 
 
 @pytest.fixture

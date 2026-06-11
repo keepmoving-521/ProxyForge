@@ -72,6 +72,31 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 
 示例配置见 [examples/config.example.yaml](examples/config.example.yaml)。
 
+### 健康检测 URL（按标签 / 任务 / Spider）
+
+```python
+config = ProxyForgeConfig(
+    health_check_url="http://httpbin.org/ip",
+    health_check_urls_by_tag={"cn": "https://www.baidu.com/"},
+    health_check_urls_by_task={"amazon": "https://www.amazon.com/robots.txt"},
+    health_check_urls_by_spider={"news_spider": "https://news.example.com/health"},
+)
+
+# 按 spider 检测
+await pool.check_health(spider="news_spider")
+
+# 按任务检测
+await pool.check_health(task="amazon")
+
+# 代理自带标签时，自动匹配 health_check_urls_by_tag
+proxy = Proxy(host="1.1.1.1", port=8080, tags=frozenset({"cn"}))
+
+# 单代理 metadata 可覆盖
+proxy.metadata["health_check_url"] = "https://target.com/ping"
+```
+
+解析优先级：**task → spider → 上下文 tags → 代理 tags → metadata → 默认 URL**。
+
 ## 快速开始
 
 ```python

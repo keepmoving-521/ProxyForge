@@ -11,6 +11,7 @@ from typing import Iterable
 import httpx
 
 from proxyforge.config import ProxyForgeConfig
+from proxyforge.health_urls import HealthCheckContext, HealthCheckUrlResolver
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.scoring import ProxyScorer
 
@@ -38,6 +39,14 @@ class HealthChecker:
     ) -> None:
         self.config = config or ProxyForgeConfig()
         self.scorer = scorer or ProxyScorer(self.config)
+        self._url_resolver = HealthCheckUrlResolver(self.config)
+
+    def resolve_url(
+        self,
+        proxy: Proxy,
+        context: HealthCheckContext | None = None,
+    ) -> str:
+        return self._url_resolver.resolve(proxy, context)
 
     def unhealthy_recheck_delay(self, proxy: Proxy) -> float:
         """UNHEALTHY 代理的指数退避复检间隔（秒）。"""
@@ -92,13 +101,16 @@ class HealthChecker:
         self,
         proxy: Proxy,
         client: httpx.AsyncClient,
+        *,
+        context: HealthCheckContext | None = None,
     ) -> bool:
         headers = {"User-Agent": self.config.user_agent}
+        check_url = self.resolve_url(proxy, context)
         was_unhealthy = proxy.status == ProxyStatus.UNHEALTHY
         try:
             start = time.perf_counter()
             response = await client.get(
-                self.config.health_check_url,
+                check_url,
                 headers=headers,
                 proxy=proxy.url,
             )
@@ -133,13 +145,17 @@ class HealthChecker:
         client: httpx.AsyncClient,
         batch: list[Proxy],
         concurrency: int,
+        *,
+        context: HealthCheckContext | None = None,
     ) -> dict[str, bool]:
         semaphore = asyncio.Semaphore(concurrency)
         results: dict[str, bool] = {}
 
         async def _check(proxy: Proxy) -> None:
             async with semaphore:
-                results[proxy.key] = await self.check_one(proxy, client)
+                results[proxy.key] = await self.check_one(
+                    proxy, client, context=context
+                )
 
         await asyncio.gather(*(_check(p) for p in batch))
         return results
@@ -151,6 +167,7 @@ class HealthChecker:
         concurrency: int | None = None,
         batch_size: int | None = None,
         force: bool = False,
+        context: HealthCheckContext | None = None,
     ) -> HealthCheckSummary:
         concurrency = concurrency or self.config.health_check_concurrency
         batch_size = batch_size or self.config.health_check_batch_size
@@ -182,7 +199,9 @@ class HealthChecker:
         ) as client:
             for offset in range(0, len(due_proxies), batch_size):
                 batch = due_proxies[offset : offset + batch_size]
-                batch_results = await self._check_batch(client, batch, concurrency)
+                batch_results = await self._check_batch(
+                    client, batch, concurrency, context=context
+                )
                 results.update(batch_results)
                 logger.debug(
                     "Health check batch %d-%d complete",

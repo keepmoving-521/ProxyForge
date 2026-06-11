@@ -50,6 +50,9 @@ class ProxyForgeConfig:
     """框架全局配置。"""
 
     health_check_url: str = "http://httpbin.org/ip"
+    health_check_urls_by_tag: dict[str, str] = field(default_factory=dict)
+    health_check_urls_by_task: dict[str, str] = field(default_factory=dict)
+    health_check_urls_by_spider: dict[str, str] = field(default_factory=dict)
     health_check_timeout: float = 10.0
     health_check_interval: float = 60.0
     unhealthy_check_interval: float = 300.0
@@ -92,6 +95,8 @@ class ProxyForgeConfig:
                 kwargs[key] = frozenset(value)
             elif key == "retry_http_codes" and value is not None:
                 kwargs[key] = frozenset(value)
+            elif key.startswith("health_check_urls_by_") and value is not None:
+                kwargs[key] = dict(value)
             else:
                 kwargs[key] = value
         return cls(**kwargs)
@@ -124,6 +129,9 @@ class ProxyForgeConfig:
     def to_dict(self) -> dict[str, Any]:
         return {
             "health_check_url": self.health_check_url,
+            "health_check_urls_by_tag": dict(self.health_check_urls_by_tag),
+            "health_check_urls_by_task": dict(self.health_check_urls_by_task),
+            "health_check_urls_by_spider": dict(self.health_check_urls_by_spider),
             "health_check_timeout": self.health_check_timeout,
             "health_check_interval": self.health_check_interval,
             "unhealthy_check_interval": self.unhealthy_check_interval,

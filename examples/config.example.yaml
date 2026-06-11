@@ -1,5 +1,12 @@
 # ProxyForge 配置示例
 health_check_url: http://httpbin.org/ip
+health_check_urls_by_tag:
+  cn: https://www.baidu.com/
+  us: https://www.google.com/robots.txt
+health_check_urls_by_task:
+  amazon_crawl: https://www.amazon.com/robots.txt
+health_check_urls_by_spider:
+  news_spider: https://news.example.com/health
 health_check_timeout: 10.0
 health_check_interval: 60.0
 unhealthy_check_interval: 300.0

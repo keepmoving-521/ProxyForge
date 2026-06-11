@@ -9,6 +9,7 @@ from typing import Iterable
 
 from proxyforge.config import ProxyForgeConfig
 from proxyforge.health import HealthChecker
+from proxyforge.health_urls import HealthCheckContext
 from proxyforge.lease import LeaseManager, ProxyLease
 from proxyforge.models import Proxy, ProxyStatus
 from proxyforge.providers.base import BaseProvider
@@ -51,6 +52,7 @@ class ProxyPool:
             max_per_proxy=self.config.max_leases_per_proxy,
         )
         self._health_task: asyncio.Task | None = None
+        self._health_check_context: HealthCheckContext | None = None
         self._lock = asyncio.Lock()
         self._sync_lock = threading.Lock()
 
@@ -174,27 +176,68 @@ class ProxyPool:
     async def check_health(
         self,
         *,
+        task: str | None = None,
+        spider: str | None = None,
+        tags: frozenset[str] | None = None,
         concurrency: int | None = None,
         batch_size: int | None = None,
         force: bool = False,
     ) -> dict[str, bool]:
+        context = self._build_health_context(task=task, spider=spider, tags=tags)
         summary = await self._checker.check_all(
             self._proxies.values(),
             concurrency=concurrency,
             batch_size=batch_size,
             force=force,
+            context=context,
         )
         await self._maybe_persist()
         return summary.results
 
-    async def start_background_health_check(self) -> None:
+    def resolve_health_check_url(
+        self,
+        proxy: Proxy,
+        *,
+        task: str | None = None,
+        spider: str | None = None,
+        tags: frozenset[str] | None = None,
+    ) -> str:
+        context = self._build_health_context(task=task, spider=spider, tags=tags)
+        return self._checker.resolve_url(proxy, context)
+
+    @staticmethod
+    def _build_health_context(
+        *,
+        task: str | None = None,
+        spider: str | None = None,
+        tags: frozenset[str] | None = None,
+    ) -> HealthCheckContext | None:
+        if task is None and spider is None and tags is None:
+            return None
+        return HealthCheckContext(task=task, spider=spider, tags=tags)
+
+    async def start_background_health_check(
+        self,
+        *,
+        task: str | None = None,
+        spider: str | None = None,
+        tags: frozenset[str] | None = None,
+    ) -> None:
         if self._health_task and not self._health_task.done():
             return
+
+        self._health_check_context = self._build_health_context(
+            task=task, spider=spider, tags=tags
+        )
 
         async def _loop() -> None:
             while True:
                 try:
-                    await self.check_health()
+                    await self.check_health(
+                        task=task,
+                        spider=spider,
+                        tags=tags,
+                    )
                 except Exception:
                     logger.exception("Background health check failed")
                 await asyncio.sleep(self.config.health_check_interval)

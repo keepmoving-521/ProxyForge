@@ -10,7 +10,8 @@ ProxyForge 是一个轻量级、高可用的代理池管理与调度框架。它
 - **智能路由** — 支持最优、加权随机、轮询等调度策略
 - **HTTP API Provider** — 对接第三方代理 API（JSON / 纯文本）
 - **Redis 持久化** — 代理状态跨进程/重启恢复
-- **框架集成** — Scrapy 中间件、aiohttp 客户端封装
+- **框架集成** — Scrapy 中间件（失败换 IP）、httpx / aiohttp 客户端
+- **代理租约** — 防止同一 IP 被并发重复使用
 
 ## 安装
 
@@ -52,6 +53,10 @@ config = ProxyForgeConfig.from_yaml("config.yaml")
 | `max_consecutive_failures` | 连续失败达阈值后封禁 | 3 |
 | `banned_cooldown_seconds` | 封禁冷却时间（秒） | 300 |
 | `allow_unknown_proxies` | 是否调度未检测代理 | true |
+| `lease_enabled` | 是否启用代理租约 | true |
+| `lease_ttl_seconds` | 租约 TTL（秒） | 60 |
+| `max_proxy_retries` | 失败换 IP 最大重试次数 | 3 |
+| `retry_http_codes` | 触发换 IP 的 HTTP 状态码 | 403,429,502,503,504 |
 | `min_score` | 最低可用评分 | 20 |
 
 示例配置见 [examples/config.example.yaml](examples/config.example.yaml)。
@@ -117,13 +122,15 @@ await storage.close()
 # settings.py
 PROXYFORGE_POOL = pool
 PROXYFORGE_STRATEGY = "weighted"
+PROXYFORGE_MAX_RETRIES = 3
+PROXYFORGE_RETRY_HTTP_CODES = [403, 429, 503]
 
 DOWNLOADER_MIDDLEWARES = {
     "proxyforge.integrations.scrapy.ProxyForgeMiddleware": 350,
 }
 ```
 
-中间件会自动设置 `request.meta["proxy"]`，并根据响应状态上报成功/失败以更新评分。
+中间件自动分配代理租约，上报成功/失败；遇到 403/429/5xx 或网络异常时自动换 IP 重试。
 
 ## aiohttp 集成
 
@@ -133,6 +140,30 @@ from proxyforge.integrations.aiohttp import ProxyForgeClient
 async with ProxyForgeClient(pool, strategy="weighted") as client:
     response = await client.get("https://example.com")
     print(await response.text())
+```
+
+## httpx 集成
+
+```python
+from proxyforge.integrations.httpx_client import ProxyForgeHttpxClient
+
+async with ProxyForgeHttpxClient(pool, strategy="weighted") as client:
+    response = await client.get("https://example.com")
+    print(response.text)
+```
+
+示例见 [examples/httpx_client.py](examples/httpx_client.py)。
+
+## 代理租约
+
+```python
+lease = pool.acquire_lease(strategy="weighted")
+try:
+    # 使用 lease.proxy.url 发起请求
+    ...
+    pool.report_success(lease.proxy, latency_ms=120)
+finally:
+    pool.release_lease(lease)
 ```
 
 ## 命令行
@@ -151,6 +182,7 @@ proxyforge/
 ├── health.py           # 健康检测
 ├── scoring.py          # 动态评分
 ├── router.py           # 智能路由
+├── lease.py            # 代理租约
 ├── serialization.py    # 序列化
 ├── config.py           # 配置
 ├── providers/          # 服务商接入
@@ -162,7 +194,8 @@ proxyforge/
 │   └── redis.py
 └── integrations/       # 框架集成
     ├── scrapy.py
-    └── aiohttp.py
+    ├── aiohttp.py
+    └── httpx_client.py
 ```
 
 ## 开发

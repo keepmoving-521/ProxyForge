@@ -28,6 +28,34 @@ pip install -e ".[scrapy]"      # Scrapy 中间件
 pip install -e ".[all]"         # 全部扩展
 ```
 
+## 配置
+
+支持代码、环境变量、YAML 三种方式：
+
+```python
+from proxyforge import ProxyForgeConfig
+
+# 直接构造
+config = ProxyForgeConfig(max_consecutive_failures=5, allow_unknown_proxies=False)
+
+# 环境变量 PROXYFORGE_MAX_CONSECUTIVE_FAILURES=5 等
+config = ProxyForgeConfig.from_env()
+
+# YAML 文件
+config = ProxyForgeConfig.from_yaml("config.yaml")
+```
+
+关键配置项：
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| `max_consecutive_failures` | 连续失败达阈值后封禁 | 3 |
+| `banned_cooldown_seconds` | 封禁冷却时间（秒） | 300 |
+| `allow_unknown_proxies` | 是否调度未检测代理 | true |
+| `min_score` | 最低可用评分 | 20 |
+
+示例配置见 [examples/config.example.yaml](examples/config.example.yaml)。
+
 ## 快速开始
 
 ```python

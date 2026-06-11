@@ -25,7 +25,10 @@ class ProxyRouter:
         required_tags = tags or self.config.tags
         candidates: list[Proxy] = []
         for proxy in proxies:
-            if not proxy.is_available():
+            if not proxy.is_available(
+                banned_cooldown_seconds=self.config.banned_cooldown_seconds,
+                allow_unknown=self.config.allow_unknown_proxies,
+            ):
                 continue
             if proxy.score < self.config.min_score:
                 continue

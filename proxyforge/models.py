@@ -42,6 +42,7 @@ class Proxy:
     last_check_at: float | None = None
     last_success_at: float | None = None
     consecutive_failures: int = 0
+    banned_at: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -72,17 +73,50 @@ class Proxy:
         self.success_count += 1
         self.total_latency_ms += latency_ms
         self.consecutive_failures = 0
+        self.banned_at = None
         self.status = ProxyStatus.HEALTHY
         now = time.time()
         self.last_check_at = now
         self.last_success_at = now
 
-    def record_failure(self) -> None:
+    def record_failure(self, *, max_consecutive_failures: int = 3) -> None:
         self.failure_count += 1
         self.consecutive_failures += 1
         self.last_check_at = time.time()
-        if self.consecutive_failures >= 3:
+        if self.consecutive_failures >= max_consecutive_failures:
+            self.status = ProxyStatus.BANNED
+            self.banned_at = time.time()
+        elif self.status == ProxyStatus.HEALTHY:
             self.status = ProxyStatus.UNHEALTHY
 
-    def is_available(self) -> bool:
-        return self.status in (ProxyStatus.HEALTHY, ProxyStatus.UNKNOWN)
+    def recover_from_ban(self) -> None:
+        """冷却结束后解除封禁，等待重新检测。"""
+        self.status = ProxyStatus.UNKNOWN
+        self.banned_at = None
+        self.consecutive_failures = 0
+
+    def is_available(
+        self,
+        *,
+        banned_cooldown_seconds: float = 300.0,
+        allow_unknown: bool = True,
+        now: float | None = None,
+    ) -> bool:
+        current = now if now is not None else time.time()
+
+        if self.status == ProxyStatus.BANNED:
+            if (
+                self.banned_at is not None
+                and current - self.banned_at >= banned_cooldown_seconds
+            ):
+                self.recover_from_ban()
+                return allow_unknown
+            return False
+
+        if self.status == ProxyStatus.UNHEALTHY:
+            return False
+
+        if self.status == ProxyStatus.UNKNOWN:
+            return allow_unknown
+
+        return True

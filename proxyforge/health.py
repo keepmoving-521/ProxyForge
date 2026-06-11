@@ -50,7 +50,9 @@ class HealthChecker:
         if ok:
             proxy.record_success(latency_ms)
         else:
-            proxy.record_failure()
+            proxy.record_failure(
+                max_consecutive_failures=self.config.max_consecutive_failures
+            )
 
         self.scorer.update_after_check(proxy, ok)
         return ok

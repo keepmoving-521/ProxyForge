@@ -32,10 +32,14 @@ def test_proxy_record_success_and_failure():
     assert proxy.success_count == 1
     assert proxy.avg_latency_ms == 100.0
 
-    proxy.record_failure()
-    proxy.record_failure()
-    proxy.record_failure()
+    proxy.record_failure(max_consecutive_failures=3)
     assert proxy.status == ProxyStatus.UNHEALTHY
+
+    proxy.record_failure(max_consecutive_failures=3)
+    assert proxy.status == ProxyStatus.UNHEALTHY
+
+    proxy.record_failure(max_consecutive_failures=3)
+    assert proxy.status == ProxyStatus.BANNED
     assert proxy.consecutive_failures == 3
 
 

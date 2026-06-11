@@ -1,0 +1,18 @@
+# ProxyForge 配置示例
+health_check_url: http://httpbin.org/ip
+health_check_timeout: 10.0
+health_check_interval: 60.0
+
+min_score: 20.0
+max_consecutive_failures: 3
+banned_cooldown_seconds: 300.0
+allow_unknown_proxies: false
+
+score_decay_per_failure: 10.0
+score_boost_per_success: 5.0
+latency_weight: 0.3
+success_rate_weight: 0.7
+
+user_agent: ProxyForge/0.2.0
+tags:
+  - cn

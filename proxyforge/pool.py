@@ -52,15 +52,31 @@ class ProxyPool:
         return len(self._proxies)
 
     def add_proxy(self, proxy: Proxy) -> None:
-        self._proxies[proxy.key] = proxy
+        existing = self._proxies.get(proxy.key)
+        if existing is None:
+            self._proxies[proxy.key] = proxy
+        else:
+            self._merge_proxy(existing, proxy)
 
     def add_proxies(self, proxies: Iterable[Proxy]) -> int:
         added = 0
         for proxy in proxies:
             if proxy.key not in self._proxies:
                 added += 1
-            self._proxies[proxy.key] = proxy
+            self.add_proxy(proxy)
         return added
+
+    @staticmethod
+    def _merge_proxy(existing: Proxy, incoming: Proxy) -> None:
+        """合并 Provider 数据，保留运行时统计。"""
+        existing.host = incoming.host
+        existing.port = incoming.port
+        existing.protocol = incoming.protocol
+        existing.username = incoming.username
+        existing.password = incoming.password
+        existing.provider = incoming.provider
+        existing.tags = existing.tags | incoming.tags
+        existing.metadata = {**existing.metadata, **incoming.metadata}
 
     def remove_proxy(self, key: str) -> bool:
         return self._proxies.pop(key, None) is not None
@@ -160,10 +176,26 @@ class ProxyPool:
     def report_success(self, proxy: Proxy, latency_ms: float) -> None:
         proxy.record_success(latency_ms)
         self._scorer.update_after_check(proxy, True)
+        self._schedule_persist(proxy)
 
     def report_failure(self, proxy: Proxy) -> None:
-        proxy.record_failure()
+        proxy.record_failure(
+            max_consecutive_failures=self.config.max_consecutive_failures
+        )
         self._scorer.update_after_check(proxy, False)
+        self._schedule_persist(proxy)
+
+    def _schedule_persist(self, proxy: Proxy | None = None) -> None:
+        if not self._auto_persist or self._storage is None:
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if proxy is not None:
+            loop.create_task(self._storage.save_proxy(proxy))
+        else:
+            loop.create_task(self.persist())
 
     def stats(self) -> dict:
         by_status: dict[str, int] = {}
